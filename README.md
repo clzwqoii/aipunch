@@ -24,9 +24,9 @@
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
-| AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 每日签到（任务领取） | 可用 | 智谱 OpenClaw 客户端；`daily_signin` 任务，积分数量由上游定；契约双来源验证，登录路径待真实 token 确认 |
-| 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 观察 | 官方活动每日 1000 积分，2026-12-31 截止；无社区实现，需自行抓包 |
-| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 登录送积分（非签到） | 暂缓 | +300 积分/天来自每日自动登录；风控性质与签到不同，用户明确要做再接 |
+| AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录领积分（限时活动） | ⏸ 无常驻签到 | `daily_signin` 任务契约历史有效（2026-09 两来源实现），当前官方福利均为限时登录领取活动；任务回归时本 Provider 自动生效 |
+| 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 📋 契约齐备，待实现 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm，漏 confirm 积分可能不到账）；AK/SK HMAC 签名 + OAuth(DPoP) 冷启动；契约见 `AGENTS.md` |
+| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 积分自动发放（无动作） | ❌ 不接 | 官方更新日志（v1.0.34）：每日积分 00:00 自动到账，无需领取也无需登录；登录仅把有效期从当天延长至 7 天，无可自动化动作 |
 
 ## 桌面壳（主推使用方式）
 
