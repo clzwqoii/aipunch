@@ -97,7 +97,9 @@ test('全流程：刷新换 STS 凭据 → delivery → claim → confirm，判�
     const deliveryCall = calls.find((c) => c.url.includes('/v1/ops/delivery'));
     assert.ok(deliveryCall);
     assert.match(deliveryCall!.url, /channel=IDE/);
-    assert.match((deliveryCall!.init?.headers as Record<string, string>).Authorization, /^SDK-HMAC-SHA256 Access=AK-1, /);
+    const deliveryHeaders = deliveryCall!.init?.headers as Record<string, string>;
+    assert.match(deliveryHeaders.Authorization, /^SDK-HMAC-SHA256 Access=AK-1, /);
+    assert.equal(deliveryHeaders['Agent-Type'], 'PromptCenter'); // ops 系列必带，漏了报 TM.00001001
 
     const claimCall = calls.find((c) => c.url.includes('/v1/ops/claim'));
     assert.ok(claimCall, '应 claim');
@@ -160,6 +162,22 @@ test('CLAIMED（已领未确认）只补 confirm，判定成功', async () => {
     assert.equal(claimCalled, false);
     assert.equal(confirmCalled, true);
     assert.match(result.message, /确认/);
+  });
+});
+
+test('delivery 返回错误信封（error_code）判定失败，不误报未开放', async () => {
+  await withCodeArtsEnv(async () => {
+    const ctx = ctxWith(
+      mockCodeArts({
+        token: TOKEN_OK,
+        delivery: () => new Response(JSON.stringify({ error_code: 'TM.00001001', error_msg: '请求头Agent-Type为空' }), { status: 200 }),
+        claim: () => new Response('{}', { status: 200 }),
+        confirm: () => new Response('{}', { status: 200 }),
+      }),
+    );
+    const result = await codearts.checkin(account, ctx);
+    assert.equal(result.ok, false);
+    assert.match(result.message, /TM\.00001001|查询签到活动失败/);
   });
 });
 

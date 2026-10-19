@@ -25,7 +25,7 @@
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
 | AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 🔬 待验证 | 赠送积分由登录动作触发（用户账本实证）；本 Provider 每日刷新会话即登录动作，待真实 token 验证是否触发奖励 |
-| 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 可用 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm）；`npm run codearts-login` 浏览器授权登录；成功路径待真实 token 确认 |
+| 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 可用 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm）；`npm run codearts-login` 浏览器授权；DPoP 换票 + HMAC 签名链路实跑确认，领取路径待定时运行覆盖 |
 | 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 每日自动发放 | 无需自动化 | 每日积分每天 00:00 自动发放 +300，默认当日 24:00 清零；当天登录后有效期延长至 7 天（用户账本实证：未登录日「有效期至当日」，登录日「延至 7 天后」）。发放无需动作，登录延效非签到形态，不接 |
 
 ## 桌面壳（主推使用方式）
@@ -95,6 +95,8 @@ npm run codearts-login
 ```
 
 DPoP 私钥与 refreshToken 绑定，三个值必须一起配置（CI 侧对应三个 Secret）。`config.json` 加账号：`{ "provider": "codearts", "name": "main", "refreshTokenEnv": "CODEARTS_REFRESH_TOKEN", "enabled": true }`
+
+> refreshToken 是**一次性票**（每次刷新轮换、旧值作废）：与 WorkBuddy 相同的单活跃执行端约束，CI 为唯一执行端，本地只跑 `dry-run`。
 
 ### 2. 本地运行
 

@@ -26,6 +26,8 @@ type JsonBody = {
   code?: number;
   message?: string;
   refresh_token?: string;
+  error_code?: string;
+  error_msg?: string;
   credentials?: Record<string, unknown>;
   credential?: Record<string, unknown>;
   data?: Record<string, unknown>;
@@ -114,7 +116,8 @@ function signedRequest(
     method,
     path,
     rawQuery,
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Language': 'zh-cn' },
+    // ops 系列必带 Agent-Type: PromptCenter，漏了报 TM.00001001「请求头Agent-Type为空」
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Language': 'zh-cn', 'Agent-Type': 'PromptCenter' },
     payload: body,
     xSdkDate: sdkDate(ctx.now),
   });
@@ -160,10 +163,14 @@ export const codearts: Provider = {
 
     const deliveryRes = await signedRequest(tokens, 'GET', DELIVERY_PATH, `channel=${OPS_CHANNEL}`, Buffer.from(''), ctx);
     const delivery = await parseJson(deliveryRes);
-    if (!delivery.data) {
+    // 错误信封（APIG  TM.*/error_code）没有 data——必须判失败，不能误报「活动未开放」
+    if (!delivery.data || !delivery.data.data) {
+      const errorCode = delivery.data?.error_code ?? delivery.data?.code ?? deliveryRes.status;
+      const errorMsg = delivery.data?.error_msg ?? delivery.data?.message ?? delivery.text.slice(0, 100);
       return {
         ok: false,
-        message: `查询签到活动失败: HTTP ${deliveryRes.status} ${delivery.text.slice(0, 100)}`,
+        message: `查询签到活动失败: ${errorCode} ${errorMsg}`,
+        detail: { delivery: delivery.data },
         rotatedRefreshToken,
       };
     }

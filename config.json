@@ -17,6 +17,12 @@
       "name": "main",
       "refreshTokenEnv": "QODER_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "codearts",
+      "name": "main",
+      "refreshTokenEnv": "CODEARTS_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }
