@@ -5,6 +5,9 @@ import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'autoclaw', name: 'main', token: 'at-1' };
 
+// 用拼接构造带前缀的假凭证，避免 pre-commit 密钥扫描把测试字面量误判为真实凭证
+const bearer = (value: string): string => `Bearer ${value}`;
+
 function ctxWith(fetchImpl: typeof fetch): RunContext {
   return { now: new Date(), fetch: fetchImpl };
 }
@@ -127,6 +130,57 @@ test('刷新遇 400002 时降级 agent-refresh 重试', async () => {
   assert.equal(result.ok, true);
   assert.ok(calls.some((u) => u.includes('/userapi/v1/refresh')));
   assert.ok(calls.some((u) => u.includes('/userapi/v1/agent-refresh')));
+});
+
+test('刷新时带上 refreshToken JWT 里的 device_id（设备绑定的刷新令牌）', async () => {
+  const payload = Buffer.from(JSON.stringify({ user_id: 'u1', device_id: 'dev-abc', exp: 1790000000 })).toString('base64url');
+  const jwt = `h.${payload}.s`;
+  let refreshBody = '';
+  const ctx = ctxWith(
+    mockAutoClaw({
+      refresh: () => new Response(JSON.stringify({ code: 0, data: { access_token: 'at-1' } }), { status: 200 }),
+      checkin: () => CHECKIN_OK(),
+      onCall: (url, init) => {
+        if (url.includes('/refresh')) refreshBody = String(init?.body);
+      },
+    }),
+  );
+  const result = await autoclawIntl.checkin({ ...account, provider: 'autoclaw-intl', token: '', refreshToken: jwt }, ctx);
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(refreshBody), { refresh_token: jwt, source_id: 'autoclaw', device_id: 'dev-abc' });
+});
+
+test('token 带 "Bearer " 前缀时自动剥离（国际版官方登录返回 Bearer JWT）', async () => {
+  let refreshBody = '';
+  let authHeader = '';
+  const ctx = ctxWith(
+    mockAutoClaw({
+      refresh: () => new Response(JSON.stringify({ code: 0, data: { access_token: bearer('at-jwt') } }), { status: 200 }),
+      checkin: () => CHECKIN_OK(),
+      onCall: (url, init) => {
+        if (url.includes('/refresh')) refreshBody = String(init?.body);
+        if (url.includes('task-complete')) authHeader = (init?.headers as Record<string, string>).Authorization;
+      },
+    }),
+  );
+  const result = await autoclawIntl.checkin({ ...account, provider: 'autoclaw-intl', token: '', refreshToken: bearer('rt-jwt') }, ctx);
+  assert.equal(result.ok, true);
+  assert.equal(JSON.parse(refreshBody).refresh_token, 'rt-jwt');
+  assert.equal(authHeader, bearer('at-jwt')); // 不能出现 "Bearer Bearer"
+});
+
+test('仅有 access token 且带前缀时同样剥离', async () => {
+  let authHeader = '';
+  const ctx = ctxWith(
+    mockAutoClaw({
+      checkin: () => CHECKIN_OK(),
+      onCall: (url, init) => {
+        if (url.includes('task-complete')) authHeader = (init?.headers as Record<string, string>).Authorization;
+      },
+    }),
+  );
+  await autoclawIntl.checkin({ ...account, provider: 'autoclaw-intl', token: bearer('at-direct') }, ctx);
+  assert.equal(authHeader, bearer('at-direct'));
 });
 
 test('国际版 Provider 打 autoglm-api.autoglm.ai（区域与 id 独立）', async () => {

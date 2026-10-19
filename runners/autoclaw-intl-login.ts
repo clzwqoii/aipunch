@@ -312,6 +312,8 @@ async function main(): Promise<void> {
       });
     });
   }
+  // 官方登录返回 "Bearer <JWT>"，落盘前剥离前缀（provider 侧也有同样的防御）
+  refreshToken = refreshToken.replace(/^Bearer\s+/i, '').trim();
   if (!refreshToken) {
     console.error('未提供 refreshToken。主路径：--oauth（浏览器官方授权）');
     process.exitCode = 1;

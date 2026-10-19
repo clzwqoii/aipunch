@@ -23,6 +23,12 @@
       "name": "main",
       "refreshTokenEnv": "CODEARTS_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "autoclaw-intl",
+      "name": "main",
+      "refreshTokenEnv": "AUTOCLAW_INTL_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }

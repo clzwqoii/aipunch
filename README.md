@@ -24,7 +24,8 @@
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
-| AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) / [autoclaw.z.ai](https://autoclaw.z.ai) | 登录触发（活动制） | 🔬 CN 待验证 / Intl 契约就绪 | 赠送积分由登录动作触发（用户账本实证）；Provider 每日刷新会话即登录动作，待真实 token 验证；国际版独立 Provider（`autoclaw-intl`），登录含风控验证码不可自动化，凭证走环境变量 |
+| AutoClaw 国际版 | [autoclaw.z.ai](https://autoclaw.z.ai) | 每日签到（任务领取） | 可用 | `daily_signin` 任务，实测 +400 积分/天；`npm run autoclaw-intl-login -- --oauth` 浏览器官方授权（阿里云滑块 + 本地回调）；真实 token 实跑确认 |
+| AutoClaw 国内版 | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 🔬 待验证 | 赠送积分由登录动作触发（用户账本实证），无常驻签到任务；Provider 每日刷新会话即登录动作，账号暂未接入 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 可用 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm）；`npm run codearts-login` 浏览器授权；DPoP 换票 + HMAC 签名链路实跑确认，领取路径待定时运行覆盖 |
 | 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 每日自动发放 | 无需自动化 | 每日积分每天 00:00 自动发放 +300，默认当日 24:00 清零；当天登录后有效期延长至 7 天（用户账本实证：未登录日「有效期至当日」，登录日「延至 7 天后」）。发放无需动作，登录延效非签到形态，不接 |
 
@@ -98,6 +99,8 @@ npm run autoclaw-intl-login -- --oauth --vendor google # Google 授权
 流程：本地起验证码页（官方阿里云 SDK）→ 你点「开始验证」拖滑块 → 自动打开官方登录页 → 登录后回调本地 → 换 refreshToken 写入 `.env`。**账号密码只输入在官方页面**，本工具不接触；回调走 Zai 登记的 loopback 端口（19654/19723/53699/18432，自动挑空闲的）。
 
 兜底（已有 token 或不想走浏览器时）：`--from-agent2api`（从 Agent2API 账号库只读导入）、`--token <rt>`、无参数粘贴。
+
+> 刷新时 refreshToken 会轮换（一次性），与 WorkBuddy/码道相同的单活跃执行端约束：CI 为唯一执行端，本地只跑 `dry-run`。刷新必须回传 token 内声明的 `device_id`，否则报 `400001`（Provider 已自动处理）。
 
 产物写入 `.env` 的 `AUTOCLAW_INTL_REFRESH_TOKEN`（`--print` 只打印不落盘）。仅有 access token 时可改用 `tokenEnv`（适合本地单次，到期需重取）。可选 `AUTOCLAW_INTL_USERAPI_BASE_URL` 覆盖基础地址。
 

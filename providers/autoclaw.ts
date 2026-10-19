@@ -30,6 +30,21 @@ function cnBase(): string {
   return resolveBase('AUTOCLAW_USERAPI_BASE_URL', CN_BASE);
 }
 
+// 国际版官方登录返回 "Bearer <JWT>" 形态，直接用会出现 "Bearer Bearer ..." / 刷新被拒
+function normalizeToken(value: string | undefined): string {
+  return (value ?? '').replace(/^Bearer\s+/i, '').trim();
+}
+
+// 刷新令牌与签发时的设备绑定（JWT 内有 device_id）；刷新必须回传同一个，否则 400001
+function deviceIdOf(refreshToken: string): string {
+  try {
+    const payload = JSON.parse(Buffer.from(refreshToken.split('.')[1], 'base64url').toString()) as Record<string, unknown>;
+    return typeof payload.device_id === 'string' ? payload.device_id : '';
+  } catch {
+    return '';
+  }
+}
+
 export function signedHeaders(token: string, opts: { web?: boolean } = {}): Record<string, string> {
   const ts = String(Math.floor(Date.now() / 1000));
   const sign = createHash('md5').update(`${APP_ID}&${ts}&${APP_KEY}`).digest('hex');
@@ -117,7 +132,13 @@ async function refreshAccessToken(
   ctx: RunContext,
   baseUrl: string,
 ): Promise<{ accessToken: string; rotatedRefreshToken?: string }> {
-  const body = JSON.stringify({ refresh_token: refreshToken, source_id: 'autoclaw' });
+  const normalized = normalizeToken(refreshToken);
+  const deviceId = process.env.AUTOCLAW_DEVICE_ID ?? process.env.AUTOCLAW_INTL_DEVICE_ID ?? deviceIdOf(normalized);
+  const body = JSON.stringify({
+    refresh_token: normalized,
+    source_id: 'autoclaw',
+    ...(deviceId ? { device_id: deviceId } : {}),
+  });
   const call = (path: string) =>
     ctx.fetch(`${baseUrl}${path}`, { method: 'POST', headers: signedHeaders(''), body });
   let res = await call('/userapi/v1/refresh');
@@ -132,7 +153,7 @@ async function refreshAccessToken(
   if (!data || data.code !== 0 || !accessToken) {
     throw new Error(`refreshToken 刷新失败: HTTP ${res.status} ${text.slice(0, 120)}`);
   }
-  return { accessToken, rotatedRefreshToken: payload?.refresh_token };
+  return { accessToken: normalizeToken(accessToken), rotatedRefreshToken: normalizeToken(payload?.refresh_token) || undefined };
 }
 
 function createAutoClawProvider(id: string, name: string, baseUrl: () => string): Provider {
@@ -140,7 +161,7 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
     id,
     name,
     async checkin(account: Account, ctx: RunContext): Promise<CheckinResult> {
-    let accessToken = account.token;
+    let accessToken = normalizeToken(account.token);
     let rotatedRefreshToken: string | undefined;
     if (account.refreshToken) {
       try {
