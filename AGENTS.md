@@ -52,6 +52,8 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 | 商汤小浣熊 | 每日登录送积分 | ⏸ 可接，暂缓 | 无签到接口；社区方案为手机号+密码模拟登录 office.xiaohuanxiong.com（ScriptCat「RaccoonWork Auto Login」v1.1.0，每天 1:00，+300 积分/天，当日失败上限防风控）；密码明文存储 + 自动登录风控性质，与签到工具定位有偏差，用户明确要做再接 |
 | 码道 CodeArts | 每日签到（官方活动） | ⏸ 观察 | 官方帮助中心确认每日 1000 积分；活动 2026-09-11~2026-12-31 截止；无社区签到实现，需自行抓包；`liu-zhengdong/magpie-codearts` 经核查**不是签到项目**（magpie 模型反代插件），但其 CodeArts CLI OAuth(PKCE+DPoP)→STS 临时凭据链可作为未来抓包的账号体系参考 |
 | AutoClaw | 每日签到（任务领取） | ✅ 已接入（L1） | 智谱 Z.ai 的 OpenClaw 一键客户端；`POST {userapi}/autoclaw-proxy/proxy/autoclaw-task-complete` body `{"task_id":"daily_signin"}`，code=0 且 reward_points>0 判领到、already_completed 判已签、410000 鉴权失效、400002 签名失败、429 限流；MD5 客户端指纹签名 `X-Auth-Sign`（appId 100003，公开指纹非密钥）；CN userapi=autoglm-acceleration-api.zhipuai.cn，Intl=autoglm-api.autoglm.ai；契约双来源（agent2api 2026-09-19 实测 + autoclaw2api 2026-09-22 逆向），短信登录契约为单来源待真实 token 验证 |
+| QwenWork / 通义灵码 / iFlow | — | ❌ 无签到证据 | 2026-10-19 调研：无每日签到接口的社区实现，也无官方签到活动记录；额度模型非每日签到形态 |
+| CatPaw / Loomy | — | ❌ 无签到 | 生态表确认无签到功能（CatPaw 另无 token 刷新机制） |
 
 ## 安全边界
 
