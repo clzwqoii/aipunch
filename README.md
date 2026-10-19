@@ -86,15 +86,26 @@ npm run autoclaw-login
 
 登录响应不带 expiresAt，按约 28 天估算，期间每次签到自动刷新续期。
 
-**国际版（autoclaw.z.ai）**：API 契约与国内版同构，Provider 为独立的 `autoclaw-intl`（两账号可并存）。但国际版登录是 Zai/Google OAuth 且带阿里云风控验证码，纯 CLI 无法自动化——凭证需从国际版客户端或社区工具导入，经环境变量注入：
+**国际版（autoclaw.z.ai）**：API 契约与国内版同构，Provider 为独立的 `autoclaw-intl`（两账号可并存）。但国际版登录是 Zai/Google OAuth 且带阿里云风控验证码（`zai-oauth-url` 强制校验 `ali_captcha_verify_param`，实测不可绕过），纯 CLI 无法自动化，凭证需手工获取后注入：
+
+**获取 refreshToken（推荐：抓登录响应）**
+1. 安装 AutoClaw 国际版客户端并登录，同时用 mitmproxy 代理（信任其证书）
+2. 抓 `autoglm-api.autoglm.ai/userapi/overseasv1/zai-oauth-login`（或 `google-oauth-login`）的**响应**
+3. 响应 JSON 的 `data.refresh_token` 即所需值
 
 ```bash
 # .env 或 GitHub Secret
-AUTOCLAW_INTL_REFRESH_TOKEN=...        # config.json 的 refreshTokenEnv 指向它
+AUTOCLAW_INTL_REFRESH_TOKEN=...      # 长期凭证，CI 必需
+# 仅有 access token 时也可：tokenEnv 指向它（适合本地单次，到期需重取）
 # 可选：AUTOCLAW_INTL_USERAPI_BASE_URL=https://autoglm-api.autoglm.ai
 ```
 
-`config.json` 加账号：`{ "provider": "autoclaw-intl", "name": "main", "refreshTokenEnv": "AUTOCLAW_INTL_REFRESH_TOKEN", "enabled": true }`
+`config.json` 加账号（二选一）：
+
+```json
+{ "provider": "autoclaw-intl", "name": "main", "refreshTokenEnv": "AUTOCLAW_INTL_REFRESH_TOKEN", "enabled": true }
+{ "provider": "autoclaw-intl", "name": "main", "tokenEnv": "AUTOCLAW_INTL_TOKEN", "enabled": true }
+```
 
 #### 码道 CodeArts（浏览器授权登录）
 
