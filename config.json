@@ -1,0 +1,10 @@
+{
+  "accounts": [
+    {
+      "provider": "workbuddy",
+      "name": "main",
+      "refreshTokenEnv": "WORKBUDDY_REFRESH_TOKEN",
+      "enabled": true
+    }
+  ]
+}
