@@ -24,6 +24,7 @@
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
+| AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 每日签到（任务领取） | 可用 | 智谱 OpenClaw 客户端；`daily_signin` 任务，积分数量由上游定；契约双来源验证，登录路径待真实 token 确认 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 观察 | 官方活动每日 1000 积分，2026-12-31 截止；无社区实现，需自行抓包 |
 | 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 登录送积分（非签到） | 暂缓 | +300 积分/天来自每日自动登录；风控性质与签到不同，用户明确要做再接 |
 
@@ -75,6 +76,15 @@ QODER_PAT=pt-xxx npm run qoder-login
 `config.json` 加账号：`{ "provider": "qoder", "name": "main", "refreshTokenEnv": "QODER_REFRESH_TOKEN", "enabled": true }`
 
 奖励规则：每天 10:00（UTC+8）刷新，100 Credits/天，服务端幂等（重复领取返回 `replayed`，不重复到账）；刷新时轮换 refreshToken 但**旧值不立即失效**，两端可短暂并存。若活动列表为空（服务端设备识别），可设 `QODER_COSY_MACHINE_TOKEN` 等设备头环境变量（见 `providers/qoder.ts` 的 `MACHINE_HEADERS` 映射）。
+
+#### AutoClaw（短信登录）
+
+```bash
+npm run autoclaw-login
+# 手机号 + 短信验证码 → 写入 .env（AUTOCLAW_REFRESH_TOKEN）
+```
+
+国际版账号设 `AUTOCLAW_REGION=global`（默认 `cn`，两区域名与账号体系不同）。登录响应不带 expiresAt，按约 28 天估算，期间每次签到自动刷新续期。
 
 ### 2. 本地运行
 
@@ -172,6 +182,7 @@ interface Provider {
 - [x] refreshToken 自动续期（CI 无人值守的前提；已真实 token 验证）
 - [x] 第 2 个 Provider：Qoder CN（L1；PAT 兑换 + 活动查询实跑确认，领取路径待定时运行覆盖）
 - [x] 第 3 个 Provider：Trae CN（L1；真实 token 实跑确认）
+- [x] 第 4 个 Provider：AutoClaw（L1；契约双来源，登录路径待真实 token 确认）
 - [ ] L0 声明式 Provider（零代码接入单请求类应用；等单请求类应用真实样本）
 - [ ] L2 凭证发现（桌面壳自动填 token + 隐私开关）
 - [ ] Tauri 2.12 桌面壳（配置管理 / 手动触发 / 执行记录）

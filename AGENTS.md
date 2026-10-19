@@ -51,7 +51,7 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 | Trae CN | 每日签到 | ✅ 已接入（L1） | 200 积分/天；`POST api.trae.cn/trae/api/v2/ug/checkin_credits/claim`，`Authorization: Cloud-IDE-JWT <jwt>` + `x-device-id`，body `{"req_source":2}`，`code=0` 成功、`9095` 已签、`9074` 设备号不真实（判失败）、`1001/1002` 自动刷新重试；`ExchangeToken`（api.trae.com.cn）refreshToken 直换 JWT，**真实 token 实跑判决（2026-10-19）**：ClientID 走 IDE 谱系 `ono9krqynydwx5`（SOLO 谱系 `en1oxy7wnw8j9n` 会报 10101，用 `TRAE_CLIENT_ID` 覆盖）、req_source=2 有效、无需设备签名；设备号与凭证经 `npm run trae-extract` 从本机客户端一次性提取（`iCubeAuthInfo://icube-dc:<数字>` 键名取设备号，cloudide blob 解密取 refreshToken）；一设备一天限签一个账号 |
 | 商汤小浣熊 | 每日登录送积分 | ⏸ 可接，暂缓 | 无签到接口；社区方案为手机号+密码模拟登录 office.xiaohuanxiong.com（ScriptCat「RaccoonWork Auto Login」v1.1.0，每天 1:00，+300 积分/天，当日失败上限防风控）；密码明文存储 + 自动登录风控性质，与签到工具定位有偏差，用户明确要做再接 |
 | 码道 CodeArts | 每日签到（官方活动） | ⏸ 观察 | 官方帮助中心确认每日 1000 积分；活动 2026-09-11~2026-12-31 截止；无社区签到实现，需自行抓包；`liu-zhengdong/magpie-codearts` 经核查**不是签到项目**（magpie 模型反代插件），但其 CodeArts CLI OAuth(PKCE+DPoP)→STS 临时凭据链可作为未来抓包的账号体系参考 |
-| AutoClaw / QwenWork / CatPaw / Loomy | 见生态表 | 📋 未调研 | Agent2API 矩阵显示 AutoClaw 有每日签到；按需排期 |
+| AutoClaw | 每日签到（任务领取） | ✅ 已接入（L1） | 智谱 Z.ai 的 OpenClaw 一键客户端；`POST {userapi}/autoclaw-proxy/proxy/autoclaw-task-complete` body `{"task_id":"daily_signin"}`，code=0 且 reward_points>0 判领到、already_completed 判已签、410000 鉴权失效、400002 签名失败、429 限流；MD5 客户端指纹签名 `X-Auth-Sign`（appId 100003，公开指纹非密钥）；CN userapi=autoglm-acceleration-api.zhipuai.cn，Intl=autoglm-api.autoglm.ai；契约双来源（agent2api 2026-09-19 实测 + autoclaw2api 2026-09-22 逆向），短信登录契约为单来源待真实 token 验证 |
 
 ## 安全边界
 
