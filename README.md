@@ -47,6 +47,7 @@ npm run checkin   # 立即签到
 - `npm run login`（手机号 + 验证码）是**冷启动**凭证获取，与浏览器/App 首次登录同理
 - 之后每次签到自动用 refreshToken 换 accessToken；服务端每次刷新会轮换 refreshToken（旧值作废）
 - 轮换出的新值**自动写回**：本地写 `.env`，CI 写 GitHub Secret（需 `GH_PAT`）——与桌面客户端把新登录态写回本地同思路，因此登录一次即可长期有效
+- **单活跃执行端约束**：轮换是单链式的（旧值立即作废），同一账号同时只能有一个执行端持有有效 token。推荐 CI 为唯一执行端；本地跑过一次签到后，需把 `.env` 的新值同步到 Secret（或反之），否则另一端下次运行会失败
 - 需要重新登录的情况：refreshToken 自然到期（约 30 天）、主动退出登录/修改密码
 
 > CI 场景不使用 `.env`，token 走 GitHub Secret；若同时存在，环境变量优先。
