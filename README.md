@@ -101,7 +101,7 @@ npm run checkin   # 立即签到
 1. 仓库 Settings → Secrets and variables → Actions → New repository secret，按上面各应用的凭证说明添加对应 Secret（如 `WORKBUDDY_REFRESH_TOKEN`、`TRAE_REFRESH_TOKEN` + `TRAE_DEVICE_ID` + `TRAE_USER_ID`）
 2. push 本仓库（`config.json` 不含密钥，可直接提交）
 3. Actions 页面 → 左侧「每日签到」→ Run workflow，手动验证一次
-4. （可选）轮换自动回写：服务端每次刷新都会轮换 refreshToken（旧值作废）。建一个对仓库有管理员权限的 PAT，存为 Secret `GH_PAT`，CI 会自动把新 token 写回对应 Secret；不配则轮换时 Actions 出 warning 提示手动更新
+4. **轮换自动回写（必配）**：服务端每次刷新都会轮换 refreshToken（旧值即作废）。建一个对仓库有管理员权限的 PAT，存为 Secret `GH_PAT`，CI 会自动把新 token 写回对应 Secret。**不配的后果**：轮换出的新值只存在于 CI 临时文件（日志不打印 token），Secret 中的旧值已作废——下一次定时运行会全部刷新失败，只能重新 `npm run login` 并手动更新 Secret
 
 之后每天定时自动执行，**本地无需开机、无需常驻任何程序**。定时规则在 `.github/workflows/checkin.yml`：
 
