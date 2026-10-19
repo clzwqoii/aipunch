@@ -34,6 +34,8 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 
 每个候选应用记录：端点清单（方法+路径）/ 请求头（含设备头）/ 成功判定与错误码语义 / 凭证获取链路（冷启动）/ 设备与风控约束 / 社区项目链接与活跃度 / 时效性核查结论。落点：`AGENTS.md` 候选池表 + README「支持的应用」表同步状态。
 
+**形态区分（2026-10-19 用户账本实证后新增）**：签到型（显式签到接口，自动化=调接口）/ 登录触发型（赠送积分由登录或会话建立动作触发，自动化=每日刷新会话，如 AutoClaw「用户登录奖励积分」）/ 自动发放型（服务端到点发放，无动作）。判错形态会找错接口——登录触发型去找「签到接口」会无功而返。
+
 ### 5. 实现与上线门禁
 
 - 实现走 TDD：先写失败测试（mock fetch，seam 为 `Provider.checkin(account, ctx)`，参照 `providers/workbuddy.test.ts`），再最小实现。
@@ -49,9 +51,9 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 | WorkBuddy | 每日签到 | ✅ 已接入（v0） | 真实 token 实跑确认；单链轮换（单活跃执行端） |
 | Qoder CN | 每日签到（活动领取） | ✅ 已接入（L1） | 三来源交叉验证；100 Credits/天，10:00 UTC+8 刷新；旧 refreshToken 不立即失效；冷启动走官方 PAT 兑换（`npm run qoder-login`，全平台通用，绕开 Windows DPAPI 本地解密——macOS 本地解密 3 轮探针无公开实现）；`jrt-`/`drt-` 双刷新端点按前缀分派；PAT 兑换 + 活动查询已真实 token 实跑（`jt-` 令牌无需 Cosy 设备头），领取路径待定时运行覆盖 |
 | Trae CN | 每日签到 | ✅ 已接入（L1） | 200 积分/天；`POST api.trae.cn/trae/api/v2/ug/checkin_credits/claim`，`Authorization: Cloud-IDE-JWT <jwt>` + `x-device-id`，body `{"req_source":2}`，`code=0` 成功、`9095` 已签、`9074` 设备号不真实（判失败）、`1001/1002` 自动刷新重试；`ExchangeToken`（api.trae.com.cn）refreshToken 直换 JWT，**真实 token 实跑判决（2026-10-19）**：ClientID 走 IDE 谱系 `ono9krqynydwx5`（SOLO 谱系 `en1oxy7wnw8j9n` 会报 10101，用 `TRAE_CLIENT_ID` 覆盖）、req_source=2 有效、无需设备签名；设备号与凭证经 `npm run trae-extract` 从本机客户端一次性提取（`iCubeAuthInfo://icube-dc:<数字>` 键名取设备号，cloudide blob 解密取 refreshToken）；一设备一天限签一个账号 |
-| 商汤小浣熊 | 积分自动发放（无动作） | ❌ 不接 | 官方更新日志（v1.0.34，2026-09-11）：每日积分 00:00 自动到账，无需领取也无需登录；登录仅把有效期从当天延长至 7 天；ScriptCat「RaccoonWork Auto Login」做账号密码模拟登录只为延有效期，风控性质重收益有限，无可自动化签到动作 |
+| 商汤小浣熊 | 待验证（疑登录触发型） | 🔬 假说待实验 | 一手账本（2026-10-19）表明需要登录才拿得到/留住积分，优先于第三方转载的「自动发放」更新日志；`~/.box-agent/config/auth.json` 明文（access_token/refresh_token，全平台无需解密，Agent2API 实证）是最简冷启动；refresh 端点 `POST {authBase}/refresh`；决定性实验：实现 refresh 型 provider 跑一次看账本是否新增积分 |
 | 码道 CodeArts | 每日签到（官方活动） | 📋 契约齐备，待实现 | 每日 1000 积分，活动 2026-09-11~2026-12-31；三步签到：`GET snap-access.cn-north-4.myhuaweicloud.com/v1/ops/delivery?channel=IDE`（data.data.items 找 campaignId=1）→ `POST /v1/ops/claim`（body {campaignId:1, idempotentKey, channel:"IDE"}）→ `POST /v1/ops/confirm`（body {campaignId:1}）；status：ELIGIBLE+claimable=true 才领、CLAIMED=已领未确认须补 confirm、CONFIRMED/CONSUMED=已签；签名 SDK-HMAC-SHA256（AK/SK+X-Security-Token，CanonicalURI 末尾补 `/`、全部头进 SignedHeaders、Authorization=`SDK-HMAC-SHA256 Access=AK, SignedHeaders=..., Signature=...`）；冷启动 OAuth PKCE + DPoP（portal codearts.huaweicloud.com/portal/authorize → 轮询 snap-manager/v1/login/ticket → sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens 换 STS 临时凭据，DPoP 私钥须与 refresh_token 绑定）；契约来源：RobbsLuo/Coding2API（2026-09-30 实测）+ 华为云官方活动页 |
-| AutoClaw | 每日签到（任务领取） | ⏸ 无常驻签到任务 | 2026-10-19 核验：官方福利均为限时登录领取活动（10/4-11、10/12-16、10/15-21 轮换），无常驻每日签到；`daily_signin` 契约历史有效（2026-09 两来源实现），任务回归时 `providers/autoclaw.ts` 自动生效，暂不投入真实 token 验证 |
+| AutoClaw | 登录触发型（活动制） | 🔬 假说待实验 | 用户账本实证「AutoClaw 用户登录奖励积分」由登录触发（2026-10-19 +500/+20,000，落在 10/15-10/21 活动期）；本 Provider 每日 `refreshAccessToken` 即登录动作，**待真实 token 验证刷新是否触发奖励**；task-complete 契约历史有效保留 |
 | QwenWork / 通义灵码 / iFlow | — | ❌ 无签到证据 | 2026-10-19 调研：无每日签到接口的社区实现，也无官方签到活动记录；额度模型非每日签到形态 |
 | CatPaw / Loomy | — | ❌ 无签到 | 生态表确认无签到功能（CatPaw 另无 token 刷新机制） |
 
