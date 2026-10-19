@@ -62,15 +62,19 @@ npm run trae-extract
 
 只读、不联网、不修改客户端文件。设备号 = 客户端真实注册号（纯十进制 12–20 位），UUID 形态会被服务端拒绝（`9074`）；一个设备号一天限签一个账号。提取后按需把值同步到 GitHub Secret（`--print` 模式输出到终端自行复制）。
 
-#### Qoder（客户端凭证库提取）
+#### Qoder（PAT 兑换）
 
-Qoder CN 没有官方登录接口，refreshToken 需从桌面客户端本地凭证库提取（社区工具基于 DPAPI + AES-GCM 解密，如 `wallechfox/qoder-checkin` 的 `01_extract.py`，Windows 客户端）。提取后：
+Qoder CN 有官方 PAT 通道，无需本地解密，全平台通用（与 WorkBuddy 插件登录同定位）：
 
-1. 设 `QODER_REFRESH_TOKEN`（本地 `.env` 或 GitHub Secret）
-2. 服务端据 `Cosy-MachineToken` 等设备头识别设备，缺失时活动列表可能为空。提取时一并拿到机器标识，经环境变量注入（见 `providers/qoder.ts` 的 `MACHINE_HEADERS` 映射）：`QODER_COSY_MACHINE_TOKEN`、`QODER_COSY_MACHINE_ID`、`QODER_COSY_MACHINE_CODE` 等
-3. `config.json` 加账号：`{ "provider": "qoder", "name": "main", "refreshTokenEnv": "QODER_REFRESH_TOKEN", "enabled": true }`
+```bash
+QODER_PAT=pt-xxx npm run qoder-login
+# PAT 在 Qoder 控制台 → 设置 → API 令牌创建（pt- 前缀，仅显示一次，注意保密）
+# 兑换出 jrt- 刷新令牌写入 .env（QODER_REFRESH_TOKEN / QODER_TOKEN）
+```
 
-与 WorkBuddy 的区别：Qoder 刷新时轮换 refreshToken 但**旧值不立即失效**，两端可短暂并存；奖励每天 10:00（UTC+8）刷新，100 Credits/天，服务端幂等（重复领取返回 `replayed`，不重复到账）。
+`config.json` 加账号：`{ "provider": "qoder", "name": "main", "refreshTokenEnv": "QODER_REFRESH_TOKEN", "enabled": true }`
+
+奖励规则：每天 10:00（UTC+8）刷新，100 Credits/天，服务端幂等（重复领取返回 `replayed`，不重复到账）；刷新时轮换 refreshToken 但**旧值不立即失效**，两端可短暂并存。若活动列表为空（服务端设备识别），可设 `QODER_COSY_MACHINE_TOKEN` 等设备头环境变量（见 `providers/qoder.ts` 的 `MACHINE_HEADERS` 映射）。
 
 ### 2. 本地运行
 
