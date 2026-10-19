@@ -1,4 +1,4 @@
-# AI 签到脚本
+# AIPunch
 
 多个 AI 应用的每日签到工具：TypeScript 核心 + GitHub Actions 定时执行 + Tauri 2.12 桌面外壳。
 

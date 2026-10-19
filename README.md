@@ -1,4 +1,6 @@
-# AI 签到脚本
+# AIPunch
+
+> 给所有 AI 应用自动打卡
 
 多个 AI 应用的每日签到自动化工具：TypeScript 核心 + GitHub Actions 定时执行，Tauri 2.0 桌面壳规划中。
 
