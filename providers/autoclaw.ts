@@ -15,13 +15,19 @@ import type { Account, CheckinResult, Provider, RunContext } from '../core/types
 const APP_ID = '100003';
 const APP_KEY = '38d2391985e2369a5fb8227d8e6cd5e5';
 const CLIENT_VERSION = '1.18.5';
-const BASES: Record<string, string> = {
-  cn: 'https://autoglm-acceleration-api.zhipuai.cn',
-  global: 'https://autoglm-api.autoglm.ai',
-};
+// 双区域：CN 与 Intl 是两套账号体系与主机（Agent2API 同款两 Provider 建模，
+// 避免地区沦为账号属性导致串号）；CN 与 Intl Provider 可并存。
+const CN_BASE = 'https://autoglm-acceleration-api.zhipuai.cn';
+const INTL_BASE = 'https://autoglm-api.autoglm.ai';
 
-function base(): string {
-  return process.env.AUTOCLAW_USERAPI_BASE_URL ?? BASES[process.env.AUTOCLAW_REGION ?? 'cn'] ?? BASES.cn;
+function resolveBase(envName: string, fallback: string): string {
+  return process.env[envName] ?? fallback;
+}
+
+// 短信登录仅国内版支持（国际版登录是 Zai/Google OAuth，且有阿里云风控验证码，
+// 纯 CLI 无法自动化，凭证走环境变量注入）
+function cnBase(): string {
+  return resolveBase('AUTOCLAW_USERAPI_BASE_URL', CN_BASE);
 }
 
 function signedHeaders(token: string, opts: { web?: boolean } = {}): Record<string, string> {
@@ -65,7 +71,7 @@ async function parseJson(res: Response): Promise<{ data: JsonBody | null; text: 
 
 // 发送短信验证码（登录第一步；device_id 为客户端生成的任意 UUID，仅作指纹）
 export async function sendSmsCode(phone: string, ctx: RunContext): Promise<void> {
-  const res = await ctx.fetch(`${base()}/userapi/v1/agent-send-code`, {
+  const res = await ctx.fetch(`${cnBase()}/userapi/v1/agent-send-code`, {
     method: 'POST',
     headers: signedHeaders('', { web: true }),
     body: JSON.stringify({ source_id: 'autoclaw', device_id: randomUUID(), phone }),
@@ -82,7 +88,7 @@ export async function loginWithSms(
   smsCode: string,
   ctx: RunContext,
 ): Promise<{ accessToken: string; refreshToken: string }> {
-  const res = await ctx.fetch(`${base()}/userapi/v1/agent-login/`, {
+  const res = await ctx.fetch(`${cnBase()}/userapi/v1/agent-login/`, {
     method: 'POST',
     headers: signedHeaders('', { web: true }),
     body: JSON.stringify({
@@ -109,10 +115,11 @@ export async function loginWithSms(
 async function refreshAccessToken(
   refreshToken: string,
   ctx: RunContext,
+  baseUrl: string,
 ): Promise<{ accessToken: string; rotatedRefreshToken?: string }> {
   const body = JSON.stringify({ refresh_token: refreshToken, source_id: 'autoclaw' });
   const call = (path: string) =>
-    ctx.fetch(`${base()}${path}`, { method: 'POST', headers: signedHeaders(''), body });
+    ctx.fetch(`${baseUrl}${path}`, { method: 'POST', headers: signedHeaders(''), body });
   let res = await call('/userapi/v1/refresh');
   let { data, text } = await parseJson(res);
   // 400002 = 签名校验失败：降级 agent-refresh 再试一次（autoclaw2api 同款策略）
@@ -128,15 +135,16 @@ async function refreshAccessToken(
   return { accessToken, rotatedRefreshToken: payload?.refresh_token };
 }
 
-export const autoclaw: Provider = {
-  id: 'autoclaw',
-  name: 'AutoClaw',
-  async checkin(account: Account, ctx: RunContext): Promise<CheckinResult> {
+function createAutoClawProvider(id: string, name: string, baseUrl: () => string): Provider {
+  return {
+    id,
+    name,
+    async checkin(account: Account, ctx: RunContext): Promise<CheckinResult> {
     let accessToken = account.token;
     let rotatedRefreshToken: string | undefined;
     if (account.refreshToken) {
       try {
-        const refreshed = await refreshAccessToken(account.refreshToken, ctx);
+        const refreshed = await refreshAccessToken(account.refreshToken, ctx, baseUrl());
         accessToken = refreshed.accessToken;
         rotatedRefreshToken = refreshed.rotatedRefreshToken;
       } catch (err) {
@@ -147,7 +155,7 @@ export const autoclaw: Provider = {
       return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
     }
 
-    const res = await ctx.fetch(`${base()}/autoclaw-proxy/proxy/autoclaw-task-complete`, {
+    const res = await ctx.fetch(`${baseUrl()}/autoclaw-proxy/proxy/autoclaw-task-complete`, {
       method: 'POST',
       headers: signedHeaders(accessToken),
       body: JSON.stringify({ task_id: 'daily_signin' }),
@@ -188,5 +196,15 @@ export const autoclaw: Provider = {
       detail: { status: res.status, body: data, rotatedRefreshToken },
       rotatedRefreshToken,
     };
-  },
-};
+    },
+  };
+}
+
+// 国内版（autoclaw.zhipuai.cn / 短信登录）与国际版（autoclaw.z.ai / Zai·Google OAuth）
+// 的 API 契约同构、仅主机不同；两 Provider 可并存（Agent2API 同款两 Provider 建模）。
+export const autoclaw = createAutoClawProvider('autoclaw', 'AutoClaw', () =>
+  resolveBase('AUTOCLAW_USERAPI_BASE_URL', CN_BASE),
+);
+export const autoclawIntl = createAutoClawProvider('autoclaw-intl', 'AutoClaw 国际版', () =>
+  resolveBase('AUTOCLAW_INTL_USERAPI_BASE_URL', INTL_BASE),
+);

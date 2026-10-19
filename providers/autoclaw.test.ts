@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoclaw } from './autoclaw.ts';
+import { autoclaw, autoclawIntl } from './autoclaw.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'autoclaw', name: 'main', token: 'at-1' };
@@ -127,6 +127,39 @@ test('刷新遇 400002 时降级 agent-refresh 重试', async () => {
   assert.equal(result.ok, true);
   assert.ok(calls.some((u) => u.includes('/userapi/v1/refresh')));
   assert.ok(calls.some((u) => u.includes('/userapi/v1/agent-refresh')));
+});
+
+test('国际版 Provider 打 autoglm-api.autoglm.ai（区域与 id 独立）', async () => {
+  const calls: string[] = [];
+  const ctx = ctxWith(
+    mockAutoClaw({
+      checkin: () => CHECKIN_OK(),
+      onCall: (url) => calls.push(url),
+    }),
+  );
+  const result = await autoclawIntl.checkin({ ...account, provider: 'autoclaw-intl' }, ctx);
+  assert.equal(result.ok, true);
+  assert.equal(autoclawIntl.id, 'autoclaw-intl');
+  assert.match(calls[0], /^https:\/\/autoglm-api\.autoglm\.ai\//);
+});
+
+test('国际版基础地址可被 AUTOCLAW_INTL_USERAPI_BASE_URL 覆盖', async () => {
+  const prev = process.env.AUTOCLAW_INTL_USERAPI_BASE_URL;
+  process.env.AUTOCLAW_INTL_USERAPI_BASE_URL = 'https://proxy.example.com';
+  try {
+    const calls: string[] = [];
+    const ctx = ctxWith(
+      mockAutoClaw({
+        checkin: () => CHECKIN_OK(),
+        onCall: (url) => calls.push(url),
+      }),
+    );
+    await autoclawIntl.checkin({ ...account, provider: 'autoclaw-intl' }, ctx);
+    assert.match(calls[0], /^https:\/\/proxy\.example\.com\//);
+  } finally {
+    if (prev === undefined) delete process.env.AUTOCLAW_INTL_USERAPI_BASE_URL;
+    else process.env.AUTOCLAW_INTL_USERAPI_BASE_URL = prev;
+  }
 });
 
 test('缺少凭证判定失败且不发起请求', async () => {

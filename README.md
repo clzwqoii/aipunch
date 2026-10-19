@@ -24,7 +24,7 @@
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
-| AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 🔬 待验证 | 赠送积分由登录动作触发（用户账本实证）；本 Provider 每日刷新会话即登录动作，待真实 token 验证是否触发奖励 |
+| AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) / [autoclaw.z.ai](https://autoclaw.z.ai) | 登录触发（活动制） | 🔬 CN 待验证 / Intl 契约就绪 | 赠送积分由登录动作触发（用户账本实证）；Provider 每日刷新会话即登录动作，待真实 token 验证；国际版独立 Provider（`autoclaw-intl`），登录含风控验证码不可自动化，凭证走环境变量 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 可用 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm）；`npm run codearts-login` 浏览器授权；DPoP 换票 + HMAC 签名链路实跑确认，领取路径待定时运行覆盖 |
 | 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 每日自动发放 | 无需自动化 | 每日积分每天 00:00 自动发放 +300，默认当日 24:00 清零；当天登录后有效期延长至 7 天（用户账本实证：未登录日「有效期至当日」，登录日「延至 7 天后」）。发放无需动作，登录延效非签到形态，不接 |
 
@@ -84,7 +84,17 @@ npm run autoclaw-login
 # 手机号 + 短信验证码 → 写入 .env（AUTOCLAW_REFRESH_TOKEN）
 ```
 
-国际版账号设 `AUTOCLAW_REGION=global`（默认 `cn`，两区域名与账号体系不同）。登录响应不带 expiresAt，按约 28 天估算，期间每次签到自动刷新续期。
+登录响应不带 expiresAt，按约 28 天估算，期间每次签到自动刷新续期。
+
+**国际版（autoclaw.z.ai）**：API 契约与国内版同构，Provider 为独立的 `autoclaw-intl`（两账号可并存）。但国际版登录是 Zai/Google OAuth 且带阿里云风控验证码，纯 CLI 无法自动化——凭证需从国际版客户端或社区工具导入，经环境变量注入：
+
+```bash
+# .env 或 GitHub Secret
+AUTOCLAW_INTL_REFRESH_TOKEN=...        # config.json 的 refreshTokenEnv 指向它
+# 可选：AUTOCLAW_INTL_USERAPI_BASE_URL=https://autoglm-api.autoglm.ai
+```
+
+`config.json` 加账号：`{ "provider": "autoclaw-intl", "name": "main", "refreshTokenEnv": "AUTOCLAW_INTL_REFRESH_TOKEN", "enabled": true }`
 
 #### 码道 CodeArts（浏览器授权登录）
 

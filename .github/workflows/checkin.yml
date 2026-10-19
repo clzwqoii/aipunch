@@ -27,6 +27,8 @@ jobs:
           CODEARTS_REFRESH_TOKEN: ${{ secrets.CODEARTS_REFRESH_TOKEN }}
           CODEARTS_DPOP_KEY: ${{ secrets.CODEARTS_DPOP_KEY }}
           CODEARTS_CODE_VERIFIER: ${{ secrets.CODEARTS_CODE_VERIFIER }}
+          AUTOCLAW_REFRESH_TOKEN: ${{ secrets.AUTOCLAW_REFRESH_TOKEN }}
+          AUTOCLAW_INTL_REFRESH_TOKEN: ${{ secrets.AUTOCLAW_INTL_REFRESH_TOKEN }}
           TRAE_REFRESH_TOKEN: ${{ secrets.TRAE_REFRESH_TOKEN }}
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
           TRAE_USER_ID: ${{ secrets.TRAE_USER_ID }}
