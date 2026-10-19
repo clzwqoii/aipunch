@@ -56,11 +56,19 @@ async function parseJson(res: Response): Promise<{ data: JsonBody | null; text: 
   }
 }
 
+// 刷新端点按令牌前缀分派（Agent2API 实测）：jrt-（PAT 兑换的作业令牌）与 drt-（设备流）
+// 端点不可互换，混用会被判令牌无效；两条路径都只需 body 里的 refresh_token，无需 COSY 签名
+function refreshUrl(refreshToken: string): string {
+  return refreshToken.startsWith('jrt-')
+    ? `${BASE}/api/v1/jobToken/refresh`
+    : `${BASE}/api/v1/deviceToken/refresh`;
+}
+
 async function refreshAccessToken(
   refreshToken: string,
   ctx: RunContext,
 ): Promise<{ accessToken: string; rotatedRefreshToken?: string }> {
-  const res = await ctx.fetch(`${BASE}/api/v1/deviceToken/refresh`, {
+  const res = await ctx.fetch(refreshUrl(refreshToken), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -83,6 +91,30 @@ function campaignHeaders(token: string): Record<string, string> {
     'User-Agent': 'Qoder/claim',
     ...deviceHeaders(),
   };
+}
+
+// PAT 兑换（Qoder CN 官方文档支持的冷启动路径，Agent2API 实测）：
+// 用户在 Qoder 控制台 → 设置 → API 令牌创建 PAT（pt- 前缀，仅显示一次），
+// POST /api/v1/jobToken/exchange body { personal_token } → { token, refresh_token }
+// 换出的 refresh_token 为 jrt- 前缀，之后刷新走 jobToken/refresh（见 refreshUrl）。
+// 该路径无需本地凭证文件解密，macOS / Linux / CI 通用，与 WorkBuddy 插件登录同定位。
+export async function exchangePat(
+  pat: string,
+  ctx: RunContext,
+): Promise<{ token: string; refreshToken: string }> {
+  if (!pat) throw new Error('PAT 不能为空');
+  const res = await ctx.fetch(`${BASE}/api/v1/jobToken/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ personal_token: pat }),
+  });
+  const { data, text } = await parseJson(res);
+  const token = data?.token;
+  const refreshToken = data?.refresh_token ?? data?.refreshToken;
+  if (!token || !refreshToken) {
+    throw new Error(`PAT 兑换失败: HTTP ${res.status} ${text.slice(0, 120)}`);
+  }
+  return { token, refreshToken };
 }
 
 export const qoder: Provider = {

@@ -8,6 +8,7 @@
   "scripts": {
     "login": "tsx runners/login.ts",
     "trae-extract": "tsx runners/trae-extract.ts",
+    "qoder-login": "tsx runners/qoder-login.ts",
     "checkin": "tsx runners/cli.ts",
     "dry-run": "tsx runners/cli.ts --dry-run",
     "typecheck": "tsc --noEmit",

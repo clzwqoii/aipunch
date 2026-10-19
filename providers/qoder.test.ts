@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { qoder } from './qoder.ts';
+import { qoder, exchangePat } from './qoder.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'qoder', name: 'main', token: '', refreshToken: 'drt-1' };
@@ -131,6 +131,41 @@ test('缺少凭证判定失败且不发起请求', async () => {
   const result = await qoder.checkin({ provider: 'qoder', name: 'main', token: '' }, ctx);
   assert.equal(result.ok, false);
   assert.equal(called, false);
+});
+
+test('exchangePat：PAT 经 jobToken/exchange 换出 token 与 refresh_token', async () => {
+  const calls: Array<{ url: string; body: string }> = [];
+  const ctx = ctxWith((async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), body: String(init?.body) });
+    return new Response(JSON.stringify({ token: 'jt-1', refresh_token: 'jrt-1' }), { status: 200 });
+  }) as typeof fetch);
+  const creds = await exchangePat('pt-abc', ctx);
+  assert.equal(creds.token, 'jt-1');
+  assert.equal(creds.refreshToken, 'jrt-1');
+  assert.match(calls[0].url, /\/api\/v1\/jobToken\/exchange/);
+  assert.deepEqual(JSON.parse(calls[0].body), { personal_token: 'pt-abc' });
+});
+
+test('exchangePat：兑换响应缺字段判定失败', async () => {
+  const ctx = ctxWith((async () => new Response(JSON.stringify({ message: 'bad pat' }), { status: 200 })) as typeof fetch);
+  await assert.rejects(() => exchangePat('pt-bad', ctx), /兑换失败/);
+});
+
+test('jrt- 前缀的 refreshToken 走 jobToken/refresh（PAT 兑换链路）', async () => {
+  const calls: string[] = [];
+  const ctx = ctxWith((async (url: string | URL | Request) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.includes('/jobToken/refresh')) {
+      return new Response(JSON.stringify({ token: 'jt-fresh', refresh_token: 'jrt-2' }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ campaigns: [] }), { status: 200 });
+  }) as typeof fetch);
+  const result = await qoder.checkin({ ...account, refreshToken: 'jrt-1' }, ctx);
+  assert.equal(result.ok, true);
+  assert.ok(calls.some((u) => u.includes('/jobToken/refresh')), 'jrt- 应走 jobToken/refresh');
+  assert.ok(!calls.some((u) => u.includes('/deviceToken/refresh')), '不应走 deviceToken/refresh');
+  assert.equal(result.rotatedRefreshToken, 'jrt-2');
 });
 
 test('Cosy-MachineToken 环境变量透传到请求头', async () => {
