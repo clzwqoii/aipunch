@@ -23,11 +23,11 @@ jobs:
           # 长期凭证从 GitHub Secrets 注入（Settings → Secrets and variables → Actions → New repository secret）
           # Secret 名需与 config.json 中账号的 refreshTokenEnv 一致；每次运行自动刷新 accessToken
           WORKBUDDY_REFRESH_TOKEN: ${{ secrets.WORKBUDDY_REFRESH_TOKEN }}
-          # 轮换后的新 refreshToken 落盘位置（由下方步骤回写 Secret）
-          CHECKIN_ROTATED_TOKEN_FILE: ${{ RUNNER_TEMP }}/rotated-tokens.txt
           # 可选：对仓库有管理员权限的 PAT，用于自动回写轮换后的 Secret
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
+          # RUNNER_TEMP 是 runner 上下文变量，只能通过 shell 环境变量使用（不能放进 env:）
+          export CHECKIN_ROTATED_TOKEN_FILE="$RUNNER_TEMP/rotated-tokens.txt"
           npm run checkin
           if [ -s "$CHECKIN_ROTATED_TOKEN_FILE" ]; then
             if [ -n "$GH_PAT" ]; then
