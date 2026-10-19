@@ -101,7 +101,16 @@ npm run checkin   # 立即签到
 1. 仓库 Settings → Secrets and variables → Actions → New repository secret，按上面各应用的凭证说明添加对应 Secret（如 `WORKBUDDY_REFRESH_TOKEN`、`TRAE_REFRESH_TOKEN` + `TRAE_DEVICE_ID` + `TRAE_USER_ID`）
 2. push 本仓库（`config.json` 不含密钥，可直接提交）
 3. Actions 页面 → 左侧「每日签到」→ Run workflow，手动验证一次
-4. **轮换自动回写（必配）**：服务端每次刷新都会轮换 refreshToken（旧值即作废）。建一个对仓库有管理员权限的 PAT，存为 Secret `GH_PAT`，CI 会自动把新 token 写回对应 Secret。**不配的后果**：轮换出的新值只存在于 CI 临时文件（日志不打印 token），Secret 中的旧值已作废——下一次定时运行会全部刷新失败，只能重新 `npm run login` 并手动更新 Secret
+4. **轮换自动回写（必配）**：服务端每次刷新都会轮换 refreshToken（旧值即作废），CI 靠 `GH_PAT` 自动把新值写回对应 Secret。创建方法：
+   1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token
+   2. Token name 随意（如 `aipunch-gh-pat`）；Resource owner 保持自己的账号；Expiration 选 1 year（到期前换新的）
+   3. Repository access 选 **Only select repositories** → 只勾本仓库（不要选 All repositories）
+   4. Permissions → Repository permissions：只把 **Secrets** 改为 **Read and write**，其他全部保持默认（Contents 等不用给，`gh secret set` 只需要 Secrets 写权限）
+   5. Generate token → 复制 `github_pat_` 开头的串 → 仓库 Settings → Secrets → New repository secret，Name 填 `GH_PAT`
+
+   验证闭环：手动触发一次工作流，日志出现「检测到 refreshToken 轮换，回写 Secret」且 Secret 的更新时间戳变新，即成立。
+
+   **不配的后果**：轮换出的新值只存在于 CI 临时文件（日志不打印 token），Secret 中的旧值已作废——下一次定时运行会全部刷新失败，只能重新 `npm run login` 并手动更新 Secret
 
 之后每天定时自动执行，**本地无需开机、无需常驻任何程序**。定时规则在 `.github/workflows/checkin.yml`：
 
