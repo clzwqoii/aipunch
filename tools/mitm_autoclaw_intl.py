@@ -2,11 +2,13 @@
 
 用法：
     brew install mitmproxy
-    mitmproxy -s tools/mitm_autoclaw_intl.py     # 交互界面；或 mitmdump -s 同上（无界面）
+    mitmdump -s tools/mitm_autoclaw_intl.py       # 推荐：无 TUI，插件输出直接可见
+    mitmproxy -s tools/mitm_autoclaw_intl.py      # TUI：底栏 [scripts:1] 表示已加载，事件按 E 查看
 
-然后让 AutoClaw 国际版客户端走该代理（系统代理或客户端代理设置），完成登录。
+然后让流量经过代理（macOS：系统设置 → 网络 → 代理 127.0.0.1:8080），并信任证书
+（浏览器访问 http://mitm.it），再让 AutoClaw 国际版客户端退出重登。
 捕获到 zai-oauth-login / google-oauth-login 的响应后，refresh_token 会写入项目根目录
-`.autoclaw-intl-token`（已 gitignore），并打印下一步命令。
+`.autoclaw-intl-token`（0600，已 gitignore），并打印下一步命令。用完关掉系统代理。
 
 说明：只读取本机、本人账号的登录响应，不上报任何数据；token 属账号凭证，请勿外泄。
 """

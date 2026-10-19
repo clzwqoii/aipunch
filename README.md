@@ -93,7 +93,9 @@ npm run autoclaw-login
 ```bash
 # 路径 A：mitmproxy 自动抓登录响应（需安装国际版客户端）
 brew install mitmproxy
-mitmproxy -s tools/mitm_autoclaw_intl.py      # 客户端走该代理并完成登录
+mitmdump -s tools/mitm_autoclaw_intl.py       # 推荐 mitmdump：无 TUI，插件输出直接可见
+# 另开终端/系统设置：开系统代理 127.0.0.1:8080 → 浏览器访问 http://mitm.it 装并信任证书
+# → 打开国际版客户端退出重登，捕获成功后关掉系统代理
 npm run autoclaw-intl-login -- --token "$(cat .autoclaw-intl-token)"
 
 # 路径 B：从 Agent2API 账号库只读导入（本机未装国际版客户端时）
@@ -103,6 +105,8 @@ npm run autoclaw-intl-login -- --from-agent2api [--db <agent2api.db 路径>]
 # 也可直接粘贴（无参数运行，或 --token）
 npm run autoclaw-intl-login
 ```
+
+> `mitmproxy -s ...`（TUI 版）也能用：底栏 `[scripts:1]` 表示插件已加载，Flow 列表为空表示尚无流量，捕获提示在事件日志里按 `E` 查看——推荐 `mitmdump` 更直观。
 
 产物写入 `.env` 的 `AUTOCLAW_INTL_REFRESH_TOKEN`（`--print` 只打印不落盘）。仅有 access token 时可改用 `tokenEnv`（适合本地单次，到期需重取）。可选 `AUTOCLAW_INTL_USERAPI_BASE_URL` 覆盖基础地址。
 
