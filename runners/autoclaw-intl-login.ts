@@ -6,13 +6,11 @@ import { candidateDbPaths, findIntlAccount } from '../core/autoclaw-intl-import.
 import { setEnvValue } from '../core/dotenv.ts';
 
 // AutoClaw 国际版凭证导入（国际版登录是 Zai/Google OAuth + 阿里云验证码，纯 CLI 不可自动化）。
-// 三条来源路径（优先级从高到低）：
-//   A1. --token <refreshToken>    从抓包/客户端复制的值（tools/mitm_autoclaw_intl.py 可自动抓）
-//   A2. 交互粘贴（stdin）
-//   B.  --from-agent2api          从 Agent2API 的账号库（{config}/agent2api.db, 表 accounts,
-//                                  provider=autoclaw-intl，明文 refreshToken）只读导入
+// 主路径：--from-agent2api —— 先用 Agent2API 的登录窗口完成国际版授权，再从它的账号库
+// （{config}/agent2api.db，表 accounts，provider=autoclaw-intl，明文 refreshToken）只读导入。
+// 兜底：--token <refreshToken> 或交互粘贴（已有 token 时用）。
 // 写入 .env 的 AUTOCLAW_INTL_REFRESH_TOKEN；--print 只打印不落盘。
-// 用法：npm run autoclaw-intl-login [-- --token <rt> | --from-agent2api [--db <path>] | --print]
+// 用法：npm run autoclaw-intl-login [-- --from-agent2api [--db <path>] | --token <rt> | --print]
 function mask(value: string): string {
   return value.length <= 8 ? '****' : `${value.slice(0, 6)}…${value.slice(-4)} (len=${value.length})`;
 }

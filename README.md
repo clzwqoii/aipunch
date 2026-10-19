@@ -88,25 +88,16 @@ npm run autoclaw-login
 
 **国际版（autoclaw.z.ai）**：API 契约与国内版同构，Provider 为独立的 `autoclaw-intl`（两账号可并存）。但国际版登录是 Zai/Google OAuth 且带阿里云风控验证码（`zai-oauth-url` 强制校验 `ali_captcha_verify_param`，实测不可绕过），纯 CLI 无法自动化，凭证需手工获取后注入：
 
-**获取 refreshToken（两条工具化路径，优先 A）**
+**获取 refreshToken（通过 Agent2API 授权）**
 
 ```bash
-# 路径 A：mitmproxy 自动抓登录响应（需安装国际版客户端）
-brew install mitmproxy
-mitmdump -s tools/mitm_autoclaw_intl.py       # 推荐 mitmdump：无 TUI，插件输出直接可见
-# 另开终端/系统设置：开系统代理 127.0.0.1:8080 → 浏览器访问 http://mitm.it 装并信任证书
-# → 打开国际版客户端退出重登，捕获成功后关掉系统代理
-npm run autoclaw-intl-login -- --token "$(cat .autoclaw-intl-token)"
-
-# 路径 B：从 Agent2API 账号库只读导入（本机未装国际版客户端时）
-# 先用 Agent2API 的登录窗口完成国际版授权（它内嵌阿里云验证码 SDK）
-npm run autoclaw-intl-login -- --from-agent2api [--db <agent2api.db 路径>]
-
-# 也可直接粘贴（无参数运行，或 --token）
-npm run autoclaw-intl-login
+# 1. 安装并打开 Agent2API（https://github.com/CencYun/agent2api），
+#    在它的登录窗口完成 AutoClaw 国际版授权（窗口内嵌阿里云验证码，Zai/Google 均可）
+# 2. 从它的账号库只读导入（自动定位 agent2api.db，也可 --db 指定）
+npm run autoclaw-intl-login -- --from-agent2api
 ```
 
-> `mitmproxy -s ...`（TUI 版）也能用：底栏 `[scripts:1]` 表示插件已加载，Flow 列表为空表示尚无流量，捕获提示在事件日志里按 `E` 查看——推荐 `mitmdump` 更直观。
+导入器只认 provider=`autoclaw-intl` 且带 `refreshToken` 的记录（Agent2API 的「导入桌面客户端」记录故意不含 token，会被跳过）。
 
 产物写入 `.env` 的 `AUTOCLAW_INTL_REFRESH_TOKEN`（`--print` 只打印不落盘）。仅有 access token 时可改用 `tokenEnv`（适合本地单次，到期需重取）。可选 `AUTOCLAW_INTL_USERAPI_BASE_URL` 覆盖基础地址。
 
