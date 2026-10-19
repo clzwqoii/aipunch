@@ -22,7 +22,7 @@
 | 应用 | 官网 | 积分形态 | 状态 | 说明 |
 |---|---|---|---|---|
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
-| Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；成功路径待真实 token 最终确认 |
+| Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 观察 | 官方活动每日 1000 积分，2026-12-31 截止；无社区实现，需自行抓包 |
 | 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 登录送积分（非签到） | 暂缓 | +300 积分/天来自每日自动登录；风控性质与签到不同，用户明确要做再接 |
@@ -170,7 +170,7 @@ interface Provider {
 
 - [x] v0：核心 + CLI + GitHub Actions + WorkBuddy Provider
 - [x] refreshToken 自动续期（CI 无人值守的前提；已真实 token 验证）
-- [x] 第 2 个 Provider：Qoder CN（L1；成功路径待真实 token 最终确认）
+- [x] 第 2 个 Provider：Qoder CN（L1；PAT 兑换 + 活动查询实跑确认，领取路径待定时运行覆盖）
 - [x] 第 3 个 Provider：Trae CN（L1；真实 token 实跑确认）
 - [ ] L0 声明式 Provider（零代码接入单请求类应用；等单请求类应用真实样本）
 - [ ] L2 凭证发现（桌面壳自动填 token + 隐私开关）

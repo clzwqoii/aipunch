@@ -47,7 +47,7 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 | 应用 | 形态 | 结论 | 关键事实 |
 |---|---|---|---|
 | WorkBuddy | 每日签到 | ✅ 已接入（v0） | 真实 token 实跑确认；单链轮换（单活跃执行端） |
-| Qoder CN | 每日签到（活动领取） | ✅ 已接入（L1） | 三来源交叉验证；100 Credits/天，10:00 UTC+8 刷新；旧 refreshToken 不立即失效；冷启动走官方 PAT 兑换（`npm run qoder-login`，全平台通用，绕开 Windows DPAPI 本地解密）；`jrt-`/`drt-` 双刷新端点按前缀分派 |
+| Qoder CN | 每日签到（活动领取） | ✅ 已接入（L1） | 三来源交叉验证；100 Credits/天，10:00 UTC+8 刷新；旧 refreshToken 不立即失效；冷启动走官方 PAT 兑换（`npm run qoder-login`，全平台通用，绕开 Windows DPAPI 本地解密——macOS 本地解密 3 轮探针无公开实现）；`jrt-`/`drt-` 双刷新端点按前缀分派；PAT 兑换 + 活动查询已真实 token 实跑（`jt-` 令牌无需 Cosy 设备头），领取路径待定时运行覆盖 |
 | Trae CN | 每日签到 | ✅ 已接入（L1） | 200 积分/天；`POST api.trae.cn/trae/api/v2/ug/checkin_credits/claim`，`Authorization: Cloud-IDE-JWT <jwt>` + `x-device-id`，body `{"req_source":2}`，`code=0` 成功、`9095` 已签、`9074` 设备号不真实（判失败）、`1001/1002` 自动刷新重试；`ExchangeToken`（api.trae.com.cn）refreshToken 直换 JWT，**真实 token 实跑判决（2026-10-19）**：ClientID 走 IDE 谱系 `ono9krqynydwx5`（SOLO 谱系 `en1oxy7wnw8j9n` 会报 10101，用 `TRAE_CLIENT_ID` 覆盖）、req_source=2 有效、无需设备签名；设备号与凭证经 `npm run trae-extract` 从本机客户端一次性提取（`iCubeAuthInfo://icube-dc:<数字>` 键名取设备号，cloudide blob 解密取 refreshToken）；一设备一天限签一个账号 |
 | 商汤小浣熊 | 每日登录送积分 | ⏸ 可接，暂缓 | 无签到接口；社区方案为手机号+密码模拟登录 office.xiaohuanxiong.com（ScriptCat「RaccoonWork Auto Login」v1.1.0，每天 1:00，+300 积分/天，当日失败上限防风控）；密码明文存储 + 自动登录风控性质，与签到工具定位有偏差，用户明确要做再接 |
 | 码道 CodeArts | 每日签到（官方活动） | ⏸ 观察 | 官方帮助中心确认每日 1000 积分；活动 2026-09-11~2026-12-31 截止；无社区签到实现，需自行抓包；`liu-zhengdong/magpie-codearts` 经核查**不是签到项目**（magpie 模型反代插件），但其 CodeArts CLI OAuth(PKCE+DPoP)→STS 临时凭据链可作为未来抓包的账号体系参考 |

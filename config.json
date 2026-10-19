@@ -11,6 +11,12 @@
       "name": "main",
       "refreshTokenEnv": "TRAE_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "qoder",
+      "name": "main",
+      "refreshTokenEnv": "QODER_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }
