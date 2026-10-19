@@ -5,6 +5,12 @@
       "name": "main",
       "refreshTokenEnv": "WORKBUDDY_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "trae",
+      "name": "main",
+      "refreshTokenEnv": "TRAE_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }

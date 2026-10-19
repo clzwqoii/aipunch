@@ -30,7 +30,7 @@
 - 发布流程（本地无需常驻）：本地/壳编辑 `config.json`（零密钥，可提交）→ push → Actions 按 cron 执行，读 Secrets 注入 token。本地只在初始 setup 需要。
 - 轮换现实与处理：服务端每次刷新都轮换 refreshToken（旧值作废），离线会话约 30 天。CLI 检测到轮换时：① 结构化透出 `rotatedRefreshToken`；② 写入 `CHECKIN_ROTATED_TOKEN_FILE`；③ workflow 用 `gh secret set` 自动回写（需 Secret `GH_PAT`，仓库管理员权限）；未配 GH_PAT 时 Actions 出 warning 提示手动更新。
 - **单活跃执行端约束**（CI 实跑验证确认）：轮换为单链式，同一账号同时只能有一个执行端持有有效 token。定位：CI 为唯一执行端，本地 CLI 仅用于初始登录与测试；两端并用时，一端运行后必须把新 token 同步到另一端。
-- 待真实 token 最终验证：刷新接口成功响应字段形状（扁平 vs `data` 嵌套已做双路径兼容）、登录接口在真实手机号上的行为。
+- 已验证（2026-10-19 真实 token 实跑）：WorkBuddy 刷新/登录接口行为符合预期，扁平 vs `data` 嵌套双路径兼容保留。Qoder CN 契约见 `providers/qoder.ts` 头注（三来源交叉验证，成功路径待真实 token 最终确认）。
 
 ## 参考 magpie 的具体设计
 

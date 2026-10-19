@@ -74,3 +74,15 @@ test('setEnvValue 读写文件（不存在则创建）', () => {
   setEnvValue(file, 'WORKBUDDY_REFRESH_TOKEN', 'v2');
   assert.equal(readFileSync(file, 'utf-8'), 'WORKBUDDY_REFRESH_TOKEN=v2\n');
 });
+
+test('多 Provider .env 轮换回写：只改目标变量，其他 Provider 的值原样保留', () => {
+  const before = [
+    'WORKBUDDY_REFRESH_TOKEN=wb-1',
+    'QODER_REFRESH_TOKEN=qoder-1',
+    'TRAE_REFRESH_TOKEN=trae-old',
+    'TRAE_DEVICE_ID=626064396416234',
+    'GH_PAT=ghp_x',
+  ];
+  const out = updateEnvValue(`${before.join('\n')}\n`, 'TRAE_REFRESH_TOKEN', 'trae-new');
+  assert.equal(out, `${[...before.slice(0, 2), 'TRAE_REFRESH_TOKEN=trae-new', ...before.slice(3)].join('\n')}\n`);
+});

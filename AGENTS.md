@@ -1,0 +1,60 @@
+# AGENTS.md
+
+AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读本文件与 `CONTEXT.md`（领域语言）、`docs/adr/`（已定案决策）。
+
+## 项目速览
+
+多个 AI 应用的每日签到：TypeScript 核心（`core/`）+ Provider（`providers/`，每个应用一个文件）+ CLI/CI Runner（`runners/` + `.github/workflows/`）。执行流：调度 → 按 `config.json` 筛选启用账号 → 逐账号调 Provider → 汇总。任一失败退出码 1。
+
+## Provider 接口调研流程（新增签到应用的必经流程）
+
+### 1. 情报来源（按优先级从高到低）
+
+| 优先级 | 来源 | 用途 |
+|---|---|---|
+| 1 | 社区开源项目（GitHub） | 端点/请求头/判定逻辑的直接证据；看 commits 数与最近更新判断是否活跃 |
+| 2 | 论坛抓包帖（52pojie / linux.do / locdd / 官方社区 forum） | 客户端真实请求日志（main.log 等），校验开源项目的字段形状 |
+| 3 | 官方文档（活动页 / 帮助中心） | 积分规则、活动起止时间、计费口径——只有官方有 |
+| 4 | 生态聚合表（Agent2API / Buddy2api 等网关项目的渠道×签到矩阵） | 快速判断某应用「有没有签到、是什么形态」，不适合作为契约依据 |
+
+### 2. 交叉验证标准
+
+- 同一契约（端点、字段形状、成功判定）须 **≥2 个独立来源**确认才进入实现；单来源只记录不实现。
+- 字段形状冲突时（如扁平 vs `data` 嵌套、`token` vs `accessToken` vs `device_token`）做双路径兼容，并在代码注释注明冲突来源。
+- 官方文案与实测矛盾时，以实测为准并记录真因（先例：Trae `9074`「参与用户太多」实为设备号非真实注册号）。
+
+### 3. 版本时效性核查（每次调研必做）
+
+- 开源项目：最近 commit / 更新时间；超过 3 个月无更新的项目，其契约降权为「待复核」。
+- 上游产品：客户端版本变化（先例：Trae 2026-09 起 `ExchangeToken` 增加设备签名校验；小浣熊 2026-08 品牌统一迁站，旧域名失效）、接口路径版本号（`/v1/` `/v2/`）。
+- 官方活动：起止时间必须记录（先例：码道 CodeArts 签到活动 2026-12-31 截止），临近到期的应用在 README 标注截止日。
+- 接口形态变化：区分「每日签到」与「每日登录送积分」（小浣熊属后者，自动登录≠签到，风控性质不同，默认不接）。
+
+### 4. 契约记录模板（调研结论落点）
+
+每个候选应用记录：端点清单（方法+路径）/ 请求头（含设备头）/ 成功判定与错误码语义 / 凭证获取链路（冷启动）/ 设备与风控约束 / 社区项目链接与活跃度 / 时效性核查结论。落点：`AGENTS.md` 候选池表 + README「支持的应用」表同步状态。
+
+### 5. 实现与上线门禁
+
+- 实现走 TDD：先写失败测试（mock fetch，seam 为 `Provider.checkin(account, ctx)`，参照 `providers/workbuddy.test.ts`），再最小实现。
+- 复用优先：`core/types.ts` 的 `rotatedRefreshToken` 轮换回写机制、`core/token-rotation.ts`、workflow 的 Secret 回写——新 Provider 不重复造。
+- 设备/风控头（如 Qoder 的 `Cosy-MachineToken`、Trae 的设备密钥）一律走环境变量透传，不在代码里生成或猜测值。
+- **真实 token 实跑确认门禁**：接口上线前必须以真实凭证本地实跑一次；未实跑的在 provider 头注与 README 标注「成功路径待真实 token 最终确认」。
+- `config.json` 加账号前确认对应环境变量已设置（`resolveAccounts` 对 disabled 账号也强制要求凭证存在，误加会导致 CI 直接失败）。
+
+## 候选池与调研结论（2026-10-19 核验）
+
+| 应用 | 形态 | 结论 | 关键事实 |
+|---|---|---|---|
+| WorkBuddy | 每日签到 | ✅ 已接入（v0） | 真实 token 实跑确认；单链轮换（单活跃执行端） |
+| Qoder CN | 每日签到（活动领取） | ✅ 已接入（L1） | 三来源交叉验证；100 Credits/天，10:00 UTC+8 刷新；旧 refreshToken 不立即失效 |
+| Trae CN | 每日签到 | ✅ 已接入（L1） | 200 积分/天；`POST api.trae.cn/trae/api/v2/ug/checkin_credits/claim`，`Authorization: Cloud-IDE-JWT <jwt>` + `x-device-id`，body `{"req_source":2}`，`code=0` 成功、`9095` 已签、`9074` 设备号不真实（判失败）、`1001/1002` 自动刷新重试；`ExchangeToken`（api.trae.com.cn）refreshToken 直换 JWT，**真实 token 实跑判决（2026-10-19）**：ClientID 走 IDE 谱系 `ono9krqynydwx5`（SOLO 谱系 `en1oxy7wnw8j9n` 会报 10101，用 `TRAE_CLIENT_ID` 覆盖）、req_source=2 有效、无需设备签名；设备号与凭证经 `npm run trae-extract` 从本机客户端一次性提取（`iCubeAuthInfo://icube-dc:<数字>` 键名取设备号，cloudide blob 解密取 refreshToken）；一设备一天限签一个账号 |
+| 商汤小浣熊 | 每日登录送积分 | ⏸ 可接，暂缓 | 无签到接口；社区方案为手机号+密码模拟登录 office.xiaohuanxiong.com（ScriptCat「RaccoonWork Auto Login」v1.1.0，每天 1:00，+300 积分/天，当日失败上限防风控）；密码明文存储 + 自动登录风控性质，与签到工具定位有偏差，用户明确要做再接 |
+| 码道 CodeArts | 每日签到（官方活动） | ⏸ 观察 | 官方帮助中心确认每日 1000 积分；活动 2026-09-11~2026-12-31 截止；无社区签到实现，需自行抓包；`liu-zhengdong/magpie-codearts` 经核查**不是签到项目**（magpie 模型反代插件），但其 CodeArts CLI OAuth(PKCE+DPoP)→STS 临时凭据链可作为未来抓包的账号体系参考 |
+| AutoClaw / QwenWork / CatPaw / Loomy | 见生态表 | 📋 未调研 | Agent2API 矩阵显示 AutoClaw 有每日签到；按需排期 |
+
+## 安全边界
+
+- token 永不写入 `config.json`，只经 `tokenEnv`/`refreshTokenEnv` 从环境变量 / GitHub Secrets 读取。
+- 凭证发现（L2，规划中）仅限桌面壳，仅读已注册 Provider 显式声明的白名单路径，`CHECKIN_NO_DISCOVERY=1` 可完全关闭。
+- 逆向接口均非官方公开 API，上游可能随时变更；仅用于自有账号，遵守各平台服务条款。

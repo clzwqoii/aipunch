@@ -23,6 +23,10 @@ jobs:
           # 长期凭证从 GitHub Secrets 注入（Settings → Secrets and variables → Actions → New repository secret）
           # Secret 名需与 config.json 中账号的 refreshTokenEnv 一致；每次运行自动刷新 accessToken
           WORKBUDDY_REFRESH_TOKEN: ${{ secrets.WORKBUDDY_REFRESH_TOKEN }}
+          QODER_REFRESH_TOKEN: ${{ secrets.QODER_REFRESH_TOKEN }}
+          TRAE_REFRESH_TOKEN: ${{ secrets.TRAE_REFRESH_TOKEN }}
+          TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
+          TRAE_USER_ID: ${{ secrets.TRAE_USER_ID }}
           # 可选：对仓库有管理员权限的 PAT，用于自动回写轮换后的 Secret
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |

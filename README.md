@@ -54,6 +54,29 @@ npm run checkin   # 立即签到
 
 > CI 场景不使用 `.env`，token 走 GitHub Secret；若同时存在，环境变量优先。
 
+### Trae 凭证
+
+客户端登录态本地提取（冷启动，只读、不联网、不修改客户端文件）：
+
+```bash
+npm run trae-extract
+# 自动定位本机 Trae CN / SOLO / TraeWork 的 storage.json，
+# 解出设备号（键名，无需解密）与 refreshToken（AES-128-CBC + SHA-512 派生解密），
+# 写入 .env（TRAE_REFRESH_TOKEN / TRAE_DEVICE_ID / TRAE_USER_ID），终端只显示掩码
+```
+
+设备号 = 客户端真实注册号（纯十进制 12–20 位），UUID 形态会被服务端拒绝（`9074`）；一个设备号一天限签一个账号。提取后按需把值同步到 GitHub Secret（`--print` 模式输出到终端自行复制）。
+
+### Qoder 凭证（与 WorkBuddy 不同）
+
+Qoder CN 没有官方登录接口，refreshToken 需从桌面客户端本地凭证库提取（社区工具基于 DPAPI + AES-GCM 解密，如 `wallechfox/qoder-checkin` 的 `01_extract.py`，Windows 客户端）。提取后：
+
+1. 设 `QODER_REFRESH_TOKEN`（本地 `.env` 或 GitHub Secret）
+2. 服务端据 `Cosy-MachineToken` 等设备头识别设备，缺失时活动列表可能为空。提取时一并拿到机器标识，经环境变量注入（见 `providers/qoder.ts` 的 `MACHINE_HEADERS` 映射）：`QODER_COSY_MACHINE_TOKEN`、`QODER_COSY_MACHINE_ID`、`QODER_COSY_MACHINE_CODE` 等
+3. `config.json` 加账号：`{ "provider": "qoder", "name": "main", "refreshTokenEnv": "QODER_REFRESH_TOKEN", "enabled": true }`
+
+与 WorkBuddy 的区别：Qoder 刷新时轮换 refreshToken 但**旧值不立即失效**，两端可短暂并存；奖励每天 10:00（UTC+8）刷新，100 Credits/天，服务端幂等（重复领取返回 `replayed`，不重复到账）。
+
 ### 3. 配置 GitHub Actions 自动签到
 
 1. 仓库 Settings → Secrets and variables → Actions → New repository secret，名称 `WORKBUDDY_REFRESH_TOKEN`，值填 `npm run login` 输出的 refreshToken
@@ -74,10 +97,13 @@ GitHub Actions 的 cron 使用 UTC（= 北京时间 - 8 小时），最小间隔
 
 ## 支持的应用
 
-| 应用 | 状态 | 说明 |
-|---|---|---|
-| WorkBuddy | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；接口经多个公开来源交叉验证，成功路径待真实 token 最终确认 |
-| 商汤小浣熊 / Qoder / Trae / 码道 CodeArts | 规划中 | 接口待调研 |
+| 应用 | 官网 | 积分形态 | 状态 | 说明 |
+|---|---|---|---|---|
+| WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
+| Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；成功路径待真实 token 最终确认 |
+| Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
+| 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 观察 | 官方活动每日 1000 积分，2026-12-31 截止；无社区实现，需自行抓包 |
+| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 登录送积分（非签到） | 暂缓 | +300 积分/天来自每日自动登录；风控性质与签到不同，用户明确要做再接 |
 
 ## 架构
 
@@ -121,8 +147,9 @@ interface Provider {
 ## 路线图
 
 - [x] v0：核心 + CLI + GitHub Actions + WorkBuddy Provider
-- [x] refreshToken 自动续期（CI 无人值守的前提；端点待真实 token 最终验证）
-- [ ] L0 声明式 Provider（零代码接入单请求类应用）
+- [x] refreshToken 自动续期（CI 无人值守的前提；已真实 token 验证）
+- [x] 第 2 个 Provider：Qoder CN（L1；成功路径待真实 token 最终确认）
+- [ ] L0 声明式 Provider（零代码接入单请求类应用；等单请求类应用真实样本）
 - [ ] L2 凭证发现（桌面壳自动填 token + 隐私开关）
 - [ ] Tauri 2.0 桌面壳（配置管理 / 手动触发 / 执行记录）
 - [ ] 云端执行环境适配（Runner）：壳内一键部署到 GitHub Actions、导出青龙面板等，见 `docs/adr/0003`
