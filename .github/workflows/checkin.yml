@@ -24,6 +24,9 @@ jobs:
           # Secret 名需与 config.json 中账号的 refreshTokenEnv 一致；每次运行自动刷新 accessToken
           WORKBUDDY_REFRESH_TOKEN: ${{ secrets.WORKBUDDY_REFRESH_TOKEN }}
           QODER_REFRESH_TOKEN: ${{ secrets.QODER_REFRESH_TOKEN }}
+          CODEARTS_REFRESH_TOKEN: ${{ secrets.CODEARTS_REFRESH_TOKEN }}
+          CODEARTS_DPOP_KEY: ${{ secrets.CODEARTS_DPOP_KEY }}
+          CODEARTS_CODE_VERIFIER: ${{ secrets.CODEARTS_CODE_VERIFIER }}
           TRAE_REFRESH_TOKEN: ${{ secrets.TRAE_REFRESH_TOKEN }}
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
           TRAE_USER_ID: ${{ secrets.TRAE_USER_ID }}
