@@ -30,7 +30,7 @@ function cnBase(): string {
   return resolveBase('AUTOCLAW_USERAPI_BASE_URL', CN_BASE);
 }
 
-function signedHeaders(token: string, opts: { web?: boolean } = {}): Record<string, string> {
+export function signedHeaders(token: string, opts: { web?: boolean } = {}): Record<string, string> {
   const ts = String(Math.floor(Date.now() / 1000));
   const sign = createHash('md5').update(`${APP_ID}&${ts}&${APP_KEY}`).digest('hex');
   const headers: Record<string, string> = {
@@ -202,9 +202,11 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
 
 // 国内版（autoclaw.zhipuai.cn / 短信登录）与国际版（autoclaw.z.ai / Zai·Google OAuth）
 // 的 API 契约同构、仅主机不同；两 Provider 可并存（Agent2API 同款两 Provider 建模）。
+export function autoclawIntlBase(): string {
+  return resolveBase('AUTOCLAW_INTL_USERAPI_BASE_URL', INTL_BASE);
+}
+
 export const autoclaw = createAutoClawProvider('autoclaw', 'AutoClaw', () =>
   resolveBase('AUTOCLAW_USERAPI_BASE_URL', CN_BASE),
 );
-export const autoclawIntl = createAutoClawProvider('autoclaw-intl', 'AutoClaw 国际版', () =>
-  resolveBase('AUTOCLAW_INTL_USERAPI_BASE_URL', INTL_BASE),
-);
+export const autoclawIntl = createAutoClawProvider('autoclaw-intl', 'AutoClaw 国际版', autoclawIntlBase);

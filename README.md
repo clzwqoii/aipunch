@@ -88,16 +88,16 @@ npm run autoclaw-login
 
 **国际版（autoclaw.z.ai）**：API 契约与国内版同构，Provider 为独立的 `autoclaw-intl`（两账号可并存）。但国际版登录是 Zai/Google OAuth 且带阿里云风控验证码（`zai-oauth-url` 强制校验 `ali_captcha_verify_param`，实测不可绕过），纯 CLI 无法自动化，凭证需手工获取后注入：
 
-**获取 refreshToken（通过 Agent2API 授权）**
+**获取 refreshToken（浏览器官方授权）**
 
 ```bash
-# 1. 安装并打开 Agent2API（https://github.com/CencYun/agent2api），
-#    在它的登录窗口完成 AutoClaw 国际版授权（窗口内嵌阿里云验证码，Zai/Google 均可）
-# 2. 从它的账号库只读导入（自动定位 agent2api.db，也可 --db 指定）
-npm run autoclaw-intl-login -- --from-agent2api
+npm run autoclaw-intl-login -- --oauth                 # Zai 授权（默认）
+npm run autoclaw-intl-login -- --oauth --vendor google # Google 授权
 ```
 
-导入器只认 provider=`autoclaw-intl` 且带 `refreshToken` 的记录（Agent2API 的「导入桌面客户端」记录故意不含 token，会被跳过）。
+流程：本地起验证码页（官方阿里云 SDK）→ 你点「开始验证」拖滑块 → 自动打开官方登录页 → 登录后回调本地 → 换 refreshToken 写入 `.env`。**账号密码只输入在官方页面**，本工具不接触；回调走 Zai 登记的 loopback 端口（19654/19723/53699/18432，自动挑空闲的）。
+
+兜底（已有 token 或不想走浏览器时）：`--from-agent2api`（从 Agent2API 账号库只读导入）、`--token <rt>`、无参数粘贴。
 
 产物写入 `.env` 的 `AUTOCLAW_INTL_REFRESH_TOKEN`（`--print` 只打印不落盘）。仅有 access token 时可改用 `tokenEnv`（适合本地单次，到期需重取）。可选 `AUTOCLAW_INTL_USERAPI_BASE_URL` 覆盖基础地址。
 
