@@ -26,7 +26,7 @@
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
 | AutoClaw | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 🔬 待验证 | 赠送积分由登录动作触发（用户账本实证）；本 Provider 每日刷新会话即登录动作，待真实 token 验证是否触发奖励 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 📋 契约齐备，待实现 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm，漏 confirm 积分可能不到账）；AK/SK HMAC 签名 + OAuth(DPoP) 冷启动；契约见 `AGENTS.md` |
-| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 疑登录触发（未发放） | 🔬 部分实证 | Provider 已实现（触发+账本核对）；实测：触发接口打通但该账号从未收到每日积分（daily_points=0、零赠送账单），发放门控待查；账号暂不接入 |
+| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 每日自动发放 | 无需自动化 | 每日积分每天 00:00 自动发放 +300，默认当日 24:00 清零；当天登录后有效期延长至 7 天（用户账本实证：未登录日「有效期至当日」，登录日「延至 7 天后」）。发放无需动作，登录延效非签到形态，不接 |
 
 ## 桌面壳（主推使用方式）
 
