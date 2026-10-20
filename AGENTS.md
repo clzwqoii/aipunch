@@ -73,7 +73,8 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 
 ## 发版门禁（Release Gate）
 
-- 每个 tag 的 GitHub Release 必须带可分发的安装包：`*aarch64.dmg`、updater 包（`*.app.tar.gz`）与 `latest.json`。只有 Source code 视为发布失败，必须排查 Actions 而不是口头交付。
+- 每个 tag 的 GitHub Release 必须带可分发的安装包：macOS `*aarch64.dmg`、Windows `*x64-setup.exe`，以及两端的 updater 包（`.app.tar.gz` / `.nsis.zip`）与 `latest.json`。只有 Source code 视为发布失败，必须排查 Actions 而不是口头交付。
+- Windows 包只能在 Windows runner 上构建（MSI 受 WiX 限制，统一走 NSIS）；`release.yml` 的矩阵必须串行（`max-parallel: 1`），因为 `latest.json` 是读-合并-写，并行会丢平台条目。
 - Release 说明必须包含**本版本变更**：workflow 开启 `generateReleaseNotes: true`；静态 `releaseBody` 只能当功能概述，不得替代变更列表。
 - 发布完成后核对：`gh release view <tag> --json assets` 三类产物齐全；应用内「检查更新」能从 `latest.json` 读到该版本。
 - 首次发布或 Actions 未自动生成说明时，必须 `gh release edit <tag> --notes-file <file>` 补上版本说明，不允许留空或只有一句占位。

@@ -10,14 +10,28 @@ on:
         description: '发布版本号（如 v0.1.0）'
         required: true
         default: 'v0.1.0'
+      publish:
+        description: '创建 GitHub Release（关闭则只构建并上传 artifact，用于平台冒烟）'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 jobs:
   release:
-    # 仅支持 Apple Silicon；macos-latest 即 arm64 镜像
-    runs-on: macos-latest
+    # 两个平台串行：共享同一个 Release，latest.json 是读-合并-写，并行会互相覆盖平台条目
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin'
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: '--target x86_64-pc-windows-msvc --bundles nsis'
+    runs-on: ${{ matrix.platform }}
     # macOS runner 10x 计费，卡住必须自动失败
     timeout-minutes: 60
     steps:
@@ -26,6 +40,7 @@ jobs:
 
       - name: 校验 tag 与 tauri.conf.json 版本一致
         if: github.event_name == 'push'
+        shell: bash
         run: |
           CONF=$(node -p "JSON.parse(require('fs').readFileSync('shell/src-tauri/tauri.conf.json','utf8')).version")
           TAG="${GITHUB_REF_NAME#v}"
@@ -46,7 +61,7 @@ jobs:
       - name: 设置 Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - name: 缓存 Rust 编译产物
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -60,7 +75,8 @@ jobs:
         run: npm --prefix shell ci
 
       - name: 同步版本号（手动触发时以输入为准）
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        shell: bash
         env:
           TAG_NAME: ${{ inputs.tag_name }}
         run: |
@@ -71,11 +87,14 @@ jobs:
           node -e "const fs=require('fs');const p='shell/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.argv[1].replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')" "$TAG_NAME"
 
       - name: 运行测试
+        # bash 负责展开 core/*.test.ts 等 glob（Windows 默认 shell 不会展开）
+        shell: bash
         run: |
           npm test
           npm --prefix shell test
 
       - name: 构建并打包发布 Tauri 应用
+        if: github.event_name == 'push' || inputs.publish
         # 代码签名/公证需要 Apple 证书，仓库暂无相应 secrets：
         # 配好后在下方 env 加入 APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD /
         # APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID 即可自动签名+公证
@@ -97,12 +116,30 @@ jobs:
             - 智能自动检查更新与一键安装重启
 
             ### 📦 资产下载
-            仅支持 Apple Silicon（M1/M2/M3/M4），下载 `*aarch64.dmg` 安装。
+            - macOS（Apple Silicon）：下载 `*aarch64.dmg`
+            - Windows（x64）：下载 `*x64-setup.exe`
 
-            > 当前构建未做 Apple 公证，首次打开若提示「已损坏」或「无法验证开发者」，
+            > macOS 构建未做 Apple 公证，首次打开若提示「已损坏」或「无法验证开发者」，
             > 请右键 `AIPunch.app` →「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/AIPunch.app`。
           releaseDraft: false
           prerelease: false
           # 静态 releaseBody 只作功能概述，变更列表由 GitHub 按提交自动生成
           generateReleaseNotes: true
-          args: '--target aarch64-apple-darwin'
+          args: ${{ matrix.args }}
+
+      - name: 仅构建安装包（不发布）
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: npm --prefix shell run tauri build -- ${{ matrix.args }}
+
+      - name: 上传构建产物
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: aipunch-${{ matrix.platform }}
+          path: |
+            shell/src-tauri/target/**/release/bundle/dmg/*.dmg
+            shell/src-tauri/target/**/release/bundle/nsis/*.exe
+          if-no-files-found: error

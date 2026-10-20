@@ -273,7 +273,7 @@ fn run_script_stream(
     Ok(())
 }
 
-// 终止当前任务：kill 整个进程组，管道关闭后上面的轮询收尾并发 script-finished
+// 终止当前任务：按平台杀掉整棵进程树，管道关闭后上面的轮询收尾并发 script-finished
 #[tauri::command]
 fn stop_script(state: tauri::State<'_, RunnerState>) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|_| "任务状态锁不可用".to_string())?;
@@ -282,7 +282,16 @@ fn stop_script(state: tauri::State<'_, RunnerState>) -> Result<(), String> {
         unsafe {
             libc::kill(-(child.id() as i32), libc::SIGKILL);
         }
-        #[cfg(not(target_os = "macos"))]
+        // Windows 没有进程组：npm.cmd 派生的 node/tsx 只能按进程树杀，否则会变孤儿
+        #[cfg(target_os = "windows")]
+        {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &child.id().to_string(), "/T", "/F"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
         {
             let _ = child.kill();
         }
@@ -292,27 +301,47 @@ fn stop_script(state: tauri::State<'_, RunnerState>) -> Result<(), String> {
 
 #[tauri::command]
 fn open_external(target: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        if target.starts_with("http://") || target.starts_with("https://") {
+    let is_url = target.starts_with("http://") || target.starts_with("https://");
+    if is_url {
+        #[cfg(target_os = "macos")]
+        {
             Command::new("open")
-                .arg(&target)
-                .spawn()
-                .map_err(|e| e.to_string())?;
-        } else {
-            Command::new("open")
-                .arg("-a")
                 .arg(&target)
                 .spawn()
                 .map_err(|e| e.to_string())?;
         }
+        // 走 argv 而不是 cmd /C，避免 URL 里的 & 被 cmd 当成命令分隔符
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("rundll32")
+                .args(["url.dll,FileProtocolHandler", &target])
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            Command::new("xdg-open")
+                .arg(&target)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-a")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
-    // 仅发布 macOS 包；Windows 走 cmd /C start 会让 target 里的 & 变成命令分隔符
+    // Windows 没有按应用显示名调起客户端的等价能力，交给开始菜单
     #[cfg(not(target_os = "macos"))]
     {
         let _ = target;
-        Err("当前版本仅支持在 macOS 打开外部链接".into())
+        Err("当前系统不支持按应用名调起本地客户端，请从开始菜单启动".into())
     }
 }
 

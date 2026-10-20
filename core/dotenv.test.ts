@@ -75,13 +75,16 @@ test('setEnvValue 读写文件（不存在则创建）', () => {
   assert.equal(readFileSync(file, 'utf-8'), 'WORKBUDDY_REFRESH_TOKEN=v2\n');
 });
 
-test('setEnvValue 新建 .env 为 0600（文件里有 token）', () => {
+// Windows 没有 POSIX 权限位语义，这两条断言只在类 Unix 平台有意义
+const posixOnly = process.platform === 'win32' ? { skip: 'Windows 不支持 POSIX 权限位' } : {};
+
+test('setEnvValue 新建 .env 为 0600（文件里有 token）', posixOnly, () => {
   const file = join(mkdtempSync(join(tmpdir(), 'dotenv-')), '.env');
   setEnvValue(file, 'WORKBUDDY_REFRESH_TOKEN', 'v1');
   assert.equal(statSync(file).mode & 0o777, 0o600);
 });
 
-test('setEnvValue 把已存在的宽松权限 .env 收紧到 0600', () => {
+test('setEnvValue 把已存在的宽松权限 .env 收紧到 0600', posixOnly, () => {
   const file = join(mkdtempSync(join(tmpdir(), 'dotenv-')), '.env');
   writeFileSync(file, 'A=1\n');
   chmodSync(file, 0o644);
