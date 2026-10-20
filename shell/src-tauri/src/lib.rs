@@ -17,8 +17,8 @@ fn app_root_file(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("无法定位应用配置目录: {}", e))
 }
 
-// 根目录解析顺序：AIPUNCH_ROOT → 应用内保存的路径 → cwd / exe 祖先目录自动探测。
-// 打包后从 Finder 启动时 cwd 是 /，必须依赖前两者。
+// 根目录解析顺序：AIPUNCH_ROOT → 应用内保存的路径 → cwd / exe 祖先目录自动探测 → 主目录浅扫。
+// 打包后从 Finder 启动时 cwd 是 /，前三步都会落空，最后一步按仓库名兜底。
 fn find_project_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(root) = std::env::var("AIPUNCH_ROOT") {
         let path = PathBuf::from(root);
@@ -53,7 +53,81 @@ fn find_project_root(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
 
+    if let Some(home) = home_dir() {
+        if let Some(found) = scan_for_root(&home, 2) {
+            let canonical = found.canonicalize().unwrap_or(found);
+            // 找到就记下来，下次启动不再扫
+            let _ = persist_project_root(app, &canonical);
+            return Ok(canonical);
+        }
+    }
+
     Err("未找到项目根目录（含 config.json 的仓库路径）：请在「隐私设置」中填写，或设置 AIPUNCH_ROOT".into())
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+}
+
+// 只认 package.json 里 name=aipunch 的仓库：主目录下同名 config.json 的项目很多，不能见 config 就收
+fn is_aipunch_repo(path: &Path) -> bool {
+    if !is_project_root(path) {
+        return false;
+    }
+    fs::read_to_string(path.join("package.json"))
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+        .and_then(|json| json.get("name")?.as_str().map(|name| name == "aipunch"))
+        .unwrap_or(false)
+}
+
+// 在主目录下按层宽度优先地找 aipunch 仓库；同层先全查完再下潜，浅的优先。
+// ponytail: 只看 2 层、最多 2000 个目录，够覆盖 ~/Sites/aipunch 这类常见布局，更深的靠手动指定。
+fn scan_for_root(start: &Path, depth: u32) -> Option<PathBuf> {
+    let mut budget = 2000usize;
+    scan_dir(start, depth, &mut budget)
+}
+
+fn scan_dir(dir: &Path, depth: u32, budget: &mut usize) -> Option<PathBuf> {
+    if depth == 0 || *budget == 0 {
+        return None;
+    }
+    *budget -= 1;
+    let mut subdirs = Vec::new();
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // 隐藏目录、node_modules、Library 里不可能有仓库，却是目录数的大头
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "node_modules" || name == "Library" {
+            continue;
+        }
+        if is_aipunch_repo(&path) {
+            return Some(path);
+        }
+        subdirs.push(path);
+    }
+    for path in subdirs {
+        if let Some(found) = scan_dir(&path, depth - 1, budget) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn persist_project_root(app: &AppHandle, path: &Path) -> Result<(), String> {
+    let root_file = app_root_file(app)?;
+    if let Some(parent) = root_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
+    }
+    fs::write(&root_file, path.display().to_string())
+        .map_err(|e| format!("保存项目根目录失败: {}", e))
 }
 
 #[tauri::command]
@@ -70,12 +144,7 @@ fn set_project_root(app: AppHandle, path: String) -> Result<String, String> {
     if !is_project_root(&canonical) {
         return Err("该目录不是 AIPunch 仓库根（缺少 config.json 或 package.json）".into());
     }
-    let root_file = app_root_file(&app)?;
-    if let Some(parent) = root_file.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
-    }
-    fs::write(&root_file, canonical.display().to_string())
-        .map_err(|e| format!("保存项目根目录失败: {}", e))?;
+    persist_project_root(&app, &canonical)?;
     Ok(canonical.display().to_string())
 }
 
@@ -628,6 +697,37 @@ mod tests {
     #[test]
     fn project_root_check_requires_config_and_package() {
         assert!(!is_project_root(Path::new("/definitely/not/aipunch")));
+    }
+
+    fn temp_repo_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("aipunch-scan-{}-{}-{}", tag, std::process::id(), nanos))
+    }
+
+    fn write_repo(dir: &Path, name: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("config.json"), "{}").unwrap();
+        fs::write(dir.join("package.json"), format!(r#"{{"name":"{}"}}"#, name)).unwrap();
+    }
+
+    #[test]
+    fn scan_finds_aipunch_repo_below_home() {
+        let base = temp_repo_dir("nested");
+        write_repo(&base.join("Sites/aipunch"), "aipunch");
+        assert_eq!(
+            scan_for_root(&base, 2).unwrap(),
+            base.join("Sites/aipunch"),
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scan_ignores_other_repos_and_respects_depth() {
+        let base = temp_repo_dir("decoy");
+        write_repo(&base.join("work/other-project"), "other");
+        write_repo(&base.join("a/b/aipunch"), "aipunch");
+        assert_eq!(scan_for_root(&base, 2), None);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
