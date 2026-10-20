@@ -36,12 +36,15 @@ test('findIntlAccount：桌面导入记录（无 token）跳过，CN 账号跳�
   assert.equal(findIntlAccount(rows), null);
 });
 
+// join() 在 Windows 宿主上产出反斜杠，断言前统一归一化
+const posix = (p: string) => p.replace(/\\/g, '/');
+
 test('candidateDbPaths：三平台标准配置目录都覆盖', () => {
   const mac = candidateDbPaths('/Users/x', 'darwin');
-  assert.ok(mac.every((p) => p.endsWith('/agent2api.db')));
-  assert.ok(mac.some((p) => p.includes('Library/Application Support')));
+  assert.ok(mac.every((p) => posix(p).endsWith('/agent2api.db')));
+  assert.ok(mac.some((p) => posix(p).includes('Library/Application Support')));
   const win = candidateDbPaths('C:/Users/x', 'win32', 'C:/Users/x/AppData/Roaming');
-  assert.ok(win.some((p) => p.includes('AppData/Roaming')));
+  assert.ok(win.some((p) => posix(p).includes('AppData/Roaming')));
   const linux = candidateDbPaths('/home/x', 'linux');
-  assert.ok(linux.some((p) => p.includes('.config')));
+  assert.ok(linux.some((p) => posix(p).includes('.config')));
 });
