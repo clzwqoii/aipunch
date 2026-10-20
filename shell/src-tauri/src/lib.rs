@@ -1,0 +1,639 @@
+use std::collections::HashSet;
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::thread;
+use tauri::{AppHandle, Emitter, Manager};
+
+fn is_project_root(path: &Path) -> bool {
+    path.join("config.json").is_file() && path.join("package.json").is_file()
+}
+
+fn app_root_file(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|dir| dir.join("project-root.txt"))
+        .map_err(|e| format!("无法定位应用配置目录: {}", e))
+}
+
+// 根目录解析顺序：AIPUNCH_ROOT → 应用内保存的路径 → cwd / exe 祖先目录自动探测。
+// 打包后从 Finder 启动时 cwd 是 /，必须依赖前两者。
+fn find_project_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(root) = std::env::var("AIPUNCH_ROOT") {
+        let path = PathBuf::from(root);
+        if is_project_root(&path) {
+            return Ok(path.canonicalize().unwrap_or(path));
+        }
+    }
+
+    if let Ok(root_file) = app_root_file(app) {
+        if let Ok(saved) = fs::read_to_string(&root_file) {
+            let path = PathBuf::from(saved.trim());
+            if is_project_root(&path) {
+                return Ok(path.canonicalize().unwrap_or(path));
+            }
+        }
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    for candidate in [cwd.clone(), cwd.join(".."), cwd.join("../..")] {
+        if is_project_root(&candidate) {
+            return Ok(candidate.canonicalize().unwrap_or(candidate));
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        let mut curr = exe_path.parent();
+        while let Some(dir) = curr {
+            if is_project_root(dir) {
+                return Ok(dir.to_path_buf());
+            }
+            curr = dir.parent();
+        }
+    }
+
+    Err("未找到项目根目录（含 config.json 的仓库路径）：请在「隐私设置」中填写，或设置 AIPUNCH_ROOT".into())
+}
+
+#[tauri::command]
+fn get_project_root(app: AppHandle) -> Result<String, String> {
+    find_project_root(&app).map(|path| path.display().to_string())
+}
+
+#[tauri::command]
+fn set_project_root(app: AppHandle, path: String) -> Result<String, String> {
+    let path = PathBuf::from(path.trim());
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("路径不存在: {}", e))?;
+    if !is_project_root(&canonical) {
+        return Err("该目录不是 AIPunch 仓库根（缺少 config.json 或 package.json）".into());
+    }
+    let root_file = app_root_file(&app)?;
+    if let Some(parent) = root_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
+    }
+    fs::write(&root_file, canonical.display().to_string())
+        .map_err(|e| format!("保存项目根目录失败: {}", e))?;
+    Ok(canonical.display().to_string())
+}
+
+#[tauri::command]
+fn get_config(app: AppHandle) -> Result<String, String> {
+    let root = find_project_root(&app)?;
+    let config_path = root.join("config.json");
+    if !config_path.exists() {
+        return Err("config.json not found".to_string());
+    }
+    fs::read_to_string(&config_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_config(app: AppHandle, content: String) -> Result<(), String> {
+    // Validate that content is valid JSON
+    let _v: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {}", e))?;
+    let root = find_project_root(&app)?;
+    let config_path = root.join("config.json");
+    atomic_write(&config_path, &content)
+}
+
+fn parse_env_keys(content: &str) -> HashSet<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                return None;
+            }
+            let (key, value) = trimmed.split_once('=')?;
+            let (key, value) = (key.trim(), value.trim());
+            (!key.is_empty() && !value.is_empty()).then(|| key.to_string())
+        })
+        .collect()
+}
+
+// 只回传键名、不回值：.env 与进程环境任一有非空值即算已配置
+fn configured_keys(
+    requested: &[String],
+    file_keys: &HashSet<String>,
+    in_process: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    requested
+        .iter()
+        .filter(|key| file_keys.contains(*key) || in_process(key))
+        .cloned()
+        .collect()
+}
+
+#[tauri::command]
+fn get_env_status(app: AppHandle, keys: Vec<String>) -> Result<Vec<String>, String> {
+    let root = find_project_root(&app)?;
+    let file_keys = fs::read_to_string(root.join(".env"))
+        .map(|content| parse_env_keys(&content))
+        .unwrap_or_default();
+    Ok(configured_keys(&keys, &file_keys, &|key| {
+        std::env::var_os(key).is_some_and(|value| !value.is_empty())
+    }))
+}
+
+#[tauri::command]
+fn get_privacy_mode(app: AppHandle) -> Result<bool, String> {
+    let root = find_project_root(&app)?;
+    let env_path = root.join(".env");
+    if env_path.exists() {
+        if let Ok(content) = fs::read_to_string(&env_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("CHECKIN_NO_DISCOVERY=") {
+                    let val = trimmed.trim_start_matches("CHECKIN_NO_DISCOVERY=").trim();
+                    return Ok(val == "1" || val.eq_ignore_ascii_case("true"));
+                }
+            }
+        }
+    }
+    if let Ok(val) = std::env::var("CHECKIN_NO_DISCOVERY") {
+        return Ok(val == "1" || val.eq_ignore_ascii_case("true"));
+    }
+    Ok(false)
+}
+
+#[tauri::command]
+fn set_privacy_mode(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let _guard = ENV_LOCK.lock().map_err(|_| "环境变量文件锁不可用".to_string())?;
+    let root = find_project_root(&app)?;
+    write_env_var(
+        &root.join(".env"),
+        "CHECKIN_NO_DISCOVERY",
+        if enabled { "1" } else { "0" },
+    )
+}
+
+#[tauri::command]
+fn run_script_stream(
+    app: AppHandle,
+    state: tauri::State<'_, RunnerState>,
+    script_name: String,
+    args: Vec<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
+    let root = find_project_root(&app)?;
+    let slot = state.0.clone();
+
+    let mut cmd = Command::new(npm_bin());
+    cmd.current_dir(&root);
+    apply_node_path(&mut cmd);
+    cmd.arg("run");
+    cmd.arg(&script_name);
+    if !args.is_empty() {
+        cmd.arg("--");
+        for arg in &args {
+            cmd.arg(arg);
+        }
+    }
+    // 凭据走环境变量而不是命令行参数，避免出现在 ps 的命令行里
+    if let Some(env) = env {
+        cmd.envs(env);
+    }
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    // 独立进程组：停止时能连 npm 派生的 node/tsx 一起杀掉
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
+    // 「检查空闲」和「登记占用」必须在同一把锁里：中间夹 spawn 就有竞态窗口，
+    // 两个 invoke 会各起一个进程，后登记的句柄覆盖前者，被覆盖的进程再也 kill 不到
+    let (stdout, stderr) = {
+        let mut guard = slot.lock().map_err(|_| "任务状态锁不可用".to_string())?;
+        if guard.is_some() {
+            return Err("已有任务在运行".to_string());
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("启动进程失败: {}", e))?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        *guard = Some(child);
+        (stdout, stderr)
+    };
+
+    let _ = app.emit("console-log", format!("[START] Executing npm run {}...", script_name));
+
+    thread::spawn(move || {
+        let app_out = app.clone();
+        let h_out = thread::spawn(move || {
+            if let Some(out) = stdout {
+                let reader = BufReader::new(out);
+                for line in reader.lines().flatten() {
+                    let _ = app_out.emit("console-log", line);
+                }
+            }
+        });
+
+        let app_err = app.clone();
+        let h_err = thread::spawn(move || {
+            if let Some(err) = stderr {
+                let reader = BufReader::new(err);
+                for line in reader.lines().flatten() {
+                    let _ = app_err.emit("console-log", line);
+                }
+            }
+        });
+
+        let _ = h_out.join();
+        let _ = h_err.join();
+
+        // 轮询 try_wait 而非阻塞 wait：stop_script 需要拿到同一把锁才能 kill
+        let status = loop {
+            let polled = match slot.lock() {
+                Ok(mut guard) => guard.as_mut().map(|child| child.try_wait()),
+                Err(_) => break None,
+            };
+            match polled {
+                Some(Ok(Some(status))) => break Some(status),
+                Some(Ok(None)) => thread::sleep(Duration::from_millis(100)),
+                _ => break None,
+            }
+        };
+        if let Ok(mut guard) = slot.lock() {
+            *guard = None;
+        }
+
+        let code = match status {
+            Some(s) => s.code().unwrap_or(-1),
+            None => -1,
+        };
+
+        let _ = app.emit("console-log", format!("[DONE] Process exited with code {}", code));
+        let _ = app.emit("script-finished", code);
+    });
+
+    Ok(())
+}
+
+// 终止当前任务：kill 整个进程组，管道关闭后上面的轮询收尾并发 script-finished
+#[tauri::command]
+fn stop_script(state: tauri::State<'_, RunnerState>) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|_| "任务状态锁不可用".to_string())?;
+    if let Some(child) = guard.as_mut() {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = child.kill();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_external(target: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if target.starts_with("http://") || target.starts_with("https://") {
+            Command::new("open")
+                .arg(&target)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        } else {
+            Command::new("open")
+                .arg("-a")
+                .arg(&target)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+    // 仅发布 macOS 包；Windows 走 cmd /C start 会让 target 里的 & 变成命令分隔符
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = target;
+        Err("当前版本仅支持在 macOS 打开外部链接".into())
+    }
+}
+
+#[tauri::command]
+fn set_env_variable(app: AppHandle, key: String, value: String) -> Result<(), String> {
+    let _guard = ENV_LOCK.lock().map_err(|_| "环境变量文件锁不可用".to_string())?;
+    let root = find_project_root(&app)?;
+    write_env_var(&root.join(".env"), &key, value.trim())
+}
+
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+// 当前运行的 npm 子进程；手动终止用（OAuth 等待等常驻脚本会锁住 UI）
+type ChildSlot = Arc<Mutex<Option<std::process::Child>>>;
+
+struct RunnerState(ChildSlot);
+
+fn is_valid_env_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn upsert_env(content: &str, key: &str, value: &str) -> String {
+    let line = format!("{}={}", key, value);
+    let prefix = format!("{}=", key);
+    let mut replaced = false;
+    let mut out: Vec<String> = Vec::new();
+    for existing in content.lines() {
+        if !replaced && existing.trim_start().starts_with(&prefix) {
+            out.push(line.clone());
+            replaced = true;
+        } else {
+            out.push(existing.to_string());
+        }
+    }
+    if !replaced {
+        out.push(line);
+    }
+    format!("{}\n", out.join("\n"))
+}
+
+fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("env");
+    let tmp = path.with_file_name(format!("{}.tmp", name));
+    fs::write(&tmp, content).map_err(|e| format!("写入临时文件失败: {}", e))?;
+    // .env 存的是 refreshToken：临时文件落盘即 0600，避免 rename 前有一段时间是 umask 默认权限
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)) {
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("设置 {} 权限失败: {}", tmp.display(), e));
+        }
+    }
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("替换 {} 失败: {}", path.display(), e)
+    })
+}
+
+// 读取失败必须报错：否则会拿空内容覆盖掉其他凭证。写入走临时文件 + rename。
+fn write_env_var(path: &Path, key: &str, value: &str) -> Result<(), String> {
+    if !is_valid_env_key(key) {
+        return Err(format!("非法环境变量名: {}", key));
+    }
+    if value.contains('\n') || value.contains('\r') {
+        return Err("环境变量值不能包含换行".into());
+    }
+    let content = if path.exists() {
+        fs::read_to_string(path).map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?
+    } else {
+        String::new()
+    };
+    atomic_write(path, &upsert_env(&content, key, value))?;
+    Ok(())
+}
+
+fn npm_bin() -> String {
+    if cfg!(windows) {
+        return "npm.cmd".to_string();
+    }
+    for candidate in ["/opt/homebrew/bin/npm", "/usr/local/bin/npm"] {
+        if Path::new(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+    "npm".to_string()
+}
+
+// GUI 启动的进程 PATH 不含 Homebrew；npm 的 shebang 也需要 node 在 PATH 里
+fn apply_node_path(cmd: &mut Command) {
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    let mut dirs: Vec<String> = Vec::new();
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
+        if Path::new(dir).is_dir() {
+            dirs.push(dir.to_string());
+        }
+    }
+    if let Ok(path) = std::env::var("PATH") {
+        dirs.push(path);
+    }
+    cmd.env("PATH", dirs.join(separator));
+}
+
+#[cfg(target_os = "macos")]
+use objc2_app_kit::NSWindow;
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSRect;
+
+#[cfg(target_os = "macos")]
+static SAVED_RESTORE_FRAME: Mutex<Option<NSRect>> = Mutex::new(None);
+static LAST_MAXIMIZE_TOGGLE: Mutex<Option<Instant>> = Mutex::new(None);
+
+#[tauri::command]
+fn toggle_maximize(window: tauri::Window) -> Result<(), String> {
+    let mut last = LAST_MAXIMIZE_TOGGLE
+        .lock()
+        .map_err(|_| "最大化状态锁不可用".to_string())?;
+    if let Some(prev) = *last {
+        if prev.elapsed().as_millis() < 400 {
+            return Ok(());
+        }
+    }
+    *last = Some(Instant::now());
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(ptr) = window.ns_window() {
+            unsafe {
+                if let Some(ns_win) = (ptr as *mut NSWindow).as_ref() {
+                    let mut saved = SAVED_RESTORE_FRAME
+                        .lock()
+                        .map_err(|_| "窗口尺寸锁不可用".to_string())?;
+                    let current_frame = ns_win.frame();
+
+                    let is_full = if let Some(screen) = ns_win.screen() {
+                        let vf = screen.visibleFrame();
+                        (current_frame.size.width - vf.size.width).abs() < 4.0
+                            && (current_frame.size.height - vf.size.height).abs() < 4.0
+                    } else {
+                        ns_win.isZoomed()
+                    };
+
+                    if is_full {
+                        let restore_rect = saved.take().unwrap_or_else(|| {
+                            let mut r = current_frame;
+                            r.size.width = 1180.0;
+                            r.size.height = 740.0;
+                            r
+                        });
+                        ns_win.setFrame_display_animate(restore_rect, true, true);
+                    } else {
+                        *saved = Some(current_frame);
+                        if let Some(screen) = ns_win.screen() {
+                            let target_rect = screen.visibleFrame();
+                            ns_win.setFrame_display_animate(target_rect, true, true);
+                        } else {
+                            ns_win.zoom(None);
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Ok(is_max) = window.is_maximized() {
+            if is_max {
+                let _ = window.unmaximize();
+            } else {
+                let _ = window.maximize();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .manage(RunnerState(Arc::new(Mutex::new(None))))
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            save_config,
+            get_env_status,
+            get_privacy_mode,
+            set_privacy_mode,
+            run_script_stream,
+            stop_script,
+            open_external,
+            set_env_variable,
+            toggle_maximize,
+            restart_app,
+            get_project_root,
+            set_project_root
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while building aipunch tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_env_path() -> PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("aipunch-env-test-{}-{}.env", std::process::id(), nanos))
+    }
+
+    #[test]
+    fn upsert_replaces_existing_and_keeps_others() {
+        let out = upsert_env("# comment\nFOO=1\nWORKBUDDY_REFRESH_TOKEN=old\nBAR=2\n", "WORKBUDDY_REFRESH_TOKEN", "new");
+        assert_eq!(out, "# comment\nFOO=1\nWORKBUDDY_REFRESH_TOKEN=new\nBAR=2\n");
+    }
+
+    #[test]
+    fn upsert_appends_missing_key() {
+        assert_eq!(upsert_env("FOO=1\n", "BAR", "2"), "FOO=1\nBAR=2\n");
+        assert_eq!(upsert_env("", "BAR", "2"), "BAR=2\n");
+    }
+
+    #[test]
+    fn env_key_validation() {
+        assert!(is_valid_env_key("WORKBUDDY_REFRESH_TOKEN"));
+        assert!(is_valid_env_key("_PRIVATE"));
+        assert!(!is_valid_env_key(""));
+        assert!(!is_valid_env_key("BAD-KEY"));
+        assert!(!is_valid_env_key("A=B"));
+        assert!(!is_valid_env_key("A\nB"));
+    }
+
+    #[test]
+    fn write_env_var_rejects_injection_and_preserves_file() {
+        let path = temp_env_path();
+        fs::write(&path, "FOO=1\n").unwrap();
+        assert!(write_env_var(&path, "FOO", "a\nNODE_OPTIONS=--require x").is_err());
+        assert!(write_env_var(&path, "BAD KEY", "x").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "FOO=1\n");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_env_var_sets_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_env_path();
+        write_env_var(&path, "FOO", "1").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_env_var_preserves_other_credentials() {
+        let path = temp_env_path();
+        fs::write(&path, "FOO=1\nCHECKIN_NO_DISCOVERY=0\n").unwrap();
+        write_env_var(&path, "CHECKIN_NO_DISCOVERY", "1").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "FOO=1\nCHECKIN_NO_DISCOVERY=1\n");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn project_root_check_requires_config_and_package() {
+        assert!(!is_project_root(Path::new("/definitely/not/aipunch")));
+    }
+
+    #[test]
+    fn configured_keys_merges_env_file_and_process() {
+        let mut file_keys = HashSet::new();
+        file_keys.insert("WORKBUDDY_REFRESH_TOKEN".to_string());
+        let requested = vec![
+            "WORKBUDDY_REFRESH_TOKEN".to_string(),
+            "TRAE_DEVICE_ID".to_string(),
+            "QODER_REFRESH_TOKEN".to_string(),
+        ];
+        let in_process = |key: &str| key == "TRAE_DEVICE_ID";
+        assert_eq!(
+            configured_keys(&requested, &file_keys, &in_process),
+            vec!["WORKBUDDY_REFRESH_TOKEN".to_string(), "TRAE_DEVICE_ID".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_env_keys_skips_comments_and_empty_values() {
+        let keys = parse_env_keys("# 注释\nFOO=1\nBAR=\nBAZ=\"x\"\n");
+        assert!(keys.contains("FOO"));
+        assert!(keys.contains("BAZ"));
+        assert!(!keys.contains("BAR"));
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_creates_owner_only_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_env_path();
+        atomic_write(&path, "SECRET=1\n").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = fs::remove_file(&path);
+    }
+}

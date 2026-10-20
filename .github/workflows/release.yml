@@ -1,0 +1,106 @@
+name: 发布桌面端 Release 与自动更新产物
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '发布版本号（如 v0.1.0）'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # 仅支持 Apple Silicon；macos-latest 即 arm64 镜像
+    runs-on: macos-latest
+    # macOS runner 10x 计费，卡住必须自动失败
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 校验 tag 与 tauri.conf.json 版本一致
+        if: github.event_name == 'push'
+        run: |
+          CONF=$(node -p "JSON.parse(require('fs').readFileSync('shell/src-tauri/tauri.conf.json','utf8')).version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$CONF" != "$TAG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 tauri.conf.json 版本 $CONF 不一致，自动更新会失效"
+            exit 1
+          fi
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            shell/package-lock.json
+
+      - name: 设置 Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: 缓存 Rust 编译产物
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: './shell/src-tauri -> target'
+
+      - name: 安装项目根依赖
+        run: npm ci
+
+      - name: 安装桌面端依赖
+        run: npm --prefix shell ci
+
+      - name: 同步版本号（手动触发时以输入为准）
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::版本号格式必须是 vX.Y.Z，收到 $TAG_NAME"
+            exit 1
+          fi
+          node -e "const fs=require('fs');const p='shell/src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.argv[1].replace(/^v/,'');fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n')" "$TAG_NAME"
+
+      - name: 运行测试
+        run: |
+          npm test
+          npm --prefix shell test
+
+      - name: 构建并打包发布 Tauri 应用
+        # 代码签名/公证需要 Apple 证书，仓库暂无相应 secrets：
+        # 配好后在下方 env 加入 APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD /
+        # APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID 即可自动签名+公证
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: './shell'
+          tagName: ${{ inputs.tag_name || github.ref_name }}
+          releaseName: 'AIPunch Desktop ${{ inputs.tag_name || github.ref_name }}'
+          releaseBody: |
+            ## AIPunch 桌面外壳发布
+
+            ### ✨ 核心特性
+            - 方案 A 磨砂深色/浅色双主题侧边栏 + Bento 卡片矩阵 + 极客实时终端
+            - 六大平台一键凭据导入向导（Qoder PAT、Trae、码道 OAuth、AutoClaw 国际版/国内版、WorkBuddy）
+            - 原生 Cocoa 平滑展开铺满与还原动画
+            - 智能自动检查更新与一键安装重启
+
+            ### 📦 资产下载
+            仅支持 Apple Silicon（M1/M2/M3/M4），下载 `*aarch64.dmg` 安装。
+
+            > 当前构建未做 Apple 公证，首次打开若提示「已损坏」或「无法验证开发者」，
+            > 请右键 `AIPunch.app` →「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/AIPunch.app`。
+          releaseDraft: false
+          prerelease: false
+          args: '--target aarch64-apple-darwin'

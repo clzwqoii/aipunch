@@ -5,23 +5,38 @@ import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
 import { persistRotatedTokens, rotationNotices } from '../core/token-rotation.ts';
 import '../providers/index.ts';
 
+function flagValue(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1]?.trim();
+  if (!value || value.startsWith('--')) throw new Error(`${flag} 后缺少值`);
+  return value;
+}
+
 async function main(): Promise<void> {
   loadDotEnv(); // 本地 .env（gitignored）中的凭证注入环境变量
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const verbose = args.includes('--verbose');
 
-  let configPath = process.env.CHECKIN_CONFIG ?? 'config.json';
-  const configFlagIndex = args.indexOf('--config');
-  if (configFlagIndex >= 0) {
-    configPath = args[configFlagIndex + 1];
-    if (!configPath) {
-      throw new Error('--config 后缺少配置文件路径');
+  const configPath = flagValue(args, '--config') ?? process.env.CHECKIN_CONFIG ?? 'config.json';
+  const providerFilter = flagValue(args, '--provider');
+  const accountFilter = flagValue(args, '--account');
+
+  let config = loadConfig(configPath);
+  if (providerFilter || accountFilter) {
+    const accounts = config.accounts.filter(
+      (a) => (!providerFilter || a.provider === providerFilter) && (!accountFilter || a.name === accountFilter),
+    );
+    if (accounts.length === 0) {
+      throw new Error(
+        `配置中没有匹配的账号: provider=${providerFilter ?? '*'} account=${accountFilter ?? '*'}`,
+      );
     }
+    config = { ...config, accounts };
   }
 
   if (dryRun) {
-    const config = loadConfig(configPath);
     for (const spec of config.accounts) {
       const state = spec.enabled === false ? ' (disabled)' : '';
       const creds: string[] = [];
@@ -37,7 +52,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const accounts = resolveAccounts(loadConfig(configPath));
+  const accounts = resolveAccounts(config);
   const result = await runCheckins(accounts, { now: new Date(), fetch: globalThis.fetch });
 
   for (const r of result.results) {

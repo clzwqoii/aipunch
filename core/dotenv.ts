@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // 加载本地 .env（已在 .gitignore，仅存本地凭证）；文件不存在或运行时不支持时静默跳过。
@@ -41,6 +41,11 @@ export function updateEnvValue(content: string, name: string, value: string): st
 // 把变量写回 .env 文件（不存在则创建）——用于 refreshToken 轮换后的自动持久化，
 // 与桌面客户端把新登录态写回本地文件的思路一致
 export function setEnvValue(filePath: string, name: string, value: string): void {
+  // 同目录临时文件 + rename：避免轮换回写期间读到写了一半的 .env（跨进程并发仍是后写覆盖）
   const content = existsSync(filePath) ? readFileSync(filePath, 'utf-8') : '';
-  writeFileSync(filePath, updateEnvValue(content, name, value));
+  const tmpPath = `${filePath}.tmp`;
+  writeFileSync(tmpPath, updateEnvValue(content, name, value));
+  // 文件里有 token，一律 0600：已有 .env 常是 0644，残留的 .env.tmp 也会让 writeFileSync 的 mode 失效
+  chmodSync(tmpPath, 0o600);
+  renameSync(tmpPath, filePath);
 }

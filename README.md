@@ -46,10 +46,11 @@ Tauri 2.12 桌面应用是主推形态：把「配账号、看记录、手动跑
 ```bash
 npm install
 npm run login
-# 输入手机号 → 输入收到的验证码 → 终端打印 refreshToken
+# 输入手机号 → 输入收到的验证码 → refreshToken 自动写入本地 .env
 ```
 
-把打印出来的 refreshToken 设为环境变量或 GitHub Secret（名称 `WORKBUDDY_REFRESH_TOKEN`）。
+登录成功后 `WORKBUDDY_REFRESH_TOKEN` 已写入 `.env`，无需手动复制。要放进 GitHub Secret 时用
+`npm run login -- --print`：只打印 token，不落盘。
 
 > 凭证等于账号钥匙：不要发给任何人，不要提交到仓库。
 
@@ -129,7 +130,7 @@ DPoP 私钥与 refreshToken 绑定，三个值必须一起配置（CI 侧对应�
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 npm run login 输出的 refreshToken
+# npm run login 已自动把 WORKBUDDY_REFRESH_TOKEN 写入 .env，其余凭证按上文各应用说明填入
 
 npm run dry-run   # 预检：确认账号与凭证就绪
 npm run checkin   # 立即签到

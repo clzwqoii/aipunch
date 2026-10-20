@@ -1,0 +1,1060 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { check, Update } from "@tauri-apps/plugin-updater";
+import { t, getCurrentLang, setLanguage, Lang, translations } from "./i18n";
+import { escapeHtml } from "./html";
+
+const appWindow = getCurrentWindow();
+
+interface AccountConfig {
+  provider: string;
+  name: string;
+  tokenEnv?: string;
+  refreshTokenEnv?: string;
+  enabled: boolean;
+  [key: string]: unknown;
+}
+
+interface AppConfig {
+  accounts: AccountConfig[];
+}
+
+const PROVIDER_METAS: Record<
+  string,
+  { name: string; iconBg: string; brandChar: string; hintKey: keyof typeof translations.zh }
+> = {
+  trae: {
+    name: "Trae",
+    iconBg: "linear-gradient(135deg, #0052d9 0%, #00f2fe 100%)",
+    brandChar: "T",
+    hintKey: "traeHint",
+  },
+  qoder: {
+    name: "Qoder",
+    iconBg: "linear-gradient(135deg, #7928ca 0%, #ff0080 100%)",
+    brandChar: "Q",
+    hintKey: "qoderHint",
+  },
+  codearts: {
+    name: "Huawei CodeArts",
+    iconBg: "linear-gradient(135deg, #c7000b 0%, #ff6b6b 100%)",
+    brandChar: "C",
+    hintKey: "codeartsHint",
+  },
+  workbuddy: {
+    name: "WorkBuddy",
+    iconBg: "linear-gradient(135deg, #2b7fff 0%, #10b981 100%)",
+    brandChar: "W",
+    hintKey: "workbuddyHint",
+  },
+  "autoclaw-intl": {
+    name: "AutoClaw",
+    iconBg: "linear-gradient(135deg, #0f172a 0%, #06b6d4 100%)",
+    brandChar: "A",
+    hintKey: "autoclawHint",
+  },
+  autoclaw: {
+    name: "AutoClaw CN",
+    iconBg: "linear-gradient(135deg, #0f172a 0%, #f59e0b 100%)",
+    brandChar: "A",
+    hintKey: "autoclawCnHint",
+  },
+  "autoclaw-cn": {
+    name: "AutoClaw CN",
+    iconBg: "linear-gradient(135deg, #0f172a 0%, #f59e0b 100%)",
+    brandChar: "A",
+    hintKey: "autoclawCnHint",
+  },
+};
+
+let currentConfig: AppConfig = { accounts: [] };
+let configuredEnvKeys: string[] = [];
+let isRunning = false;
+let runnerResolve: ((code: number) => void) | null = null;
+let lastExitCode: number | null = null;
+
+// 初始化
+async function init() {
+  setupLanguage();
+  setupTheme();
+  setupNavigation();
+  setupWindowControls();
+  setupTerminalControls();
+  setupUpdaterControls();
+  renderInitialTerminalLogs();
+  await setupEventListeners();
+  await loadPrivacyMode();
+  await setupProjectRoot();
+  await loadConfigAndState();
+}
+
+// 0. 窗口控制：双击执行 Cocoa 原生平滑动画铺满/还原，mousedown 启动系统级原生拖拽
+function setupWindowControls() {
+  // 原生拖拽启动
+  window.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return; // 仅左键
+    if (e.detail > 1) return; // 双击手势由 mouseup 动画接管，不打断
+
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    // 交互控件不拖拽
+    if (
+      target.closest(
+        "button, input, select, textarea, label, .slider, .nav-item, .pill-btn, .term-btn, .modal-backdrop, .account-toggle"
+      )
+    ) {
+      return;
+    }
+
+    // 在拖拽区域激活系统级流畅移动
+    if (
+      target.closest("[data-tauri-drag-region]") ||
+      target.closest(".window-titlebar") ||
+      target.closest(".traffic-lights-spacer") ||
+      target.closest(".main-top-drag-bar") ||
+      target.closest(".terminal-header")
+    ) {
+      appWindow.startDragging().catch((err) => {
+        console.warn("startDragging skipped:", err);
+      });
+    }
+  });
+
+  // 捕获阶段拦截双击 mouseup，由 Rust 端带有 Cocoa 动画的 toggle_maximize 接管
+  window.addEventListener(
+    "mouseup",
+    async (e) => {
+      if (e.button !== 0 || e.detail !== 2) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (
+        target.closest(
+          "button, input, select, textarea, label, .slider, .nav-item, .pill-btn, .term-btn, .modal-backdrop, .account-toggle"
+        )
+      ) {
+        return;
+      }
+      if (
+        target.closest("[data-tauri-drag-region]") ||
+        target.closest(".window-titlebar") ||
+        target.closest(".traffic-lights-spacer") ||
+        target.closest(".main-top-drag-bar") ||
+        target.closest(".terminal-header")
+      ) {
+        e.stopImmediatePropagation();
+        try {
+          await invoke("toggle_maximize");
+        } catch (err) {
+          console.warn("Animated toggle_maximize failed:", err);
+        }
+      }
+    },
+    true
+  );
+}
+
+// 1. 多语言系统
+function setupLanguage() {
+  applyLanguage(getCurrentLang());
+
+  document.getElementById("lang-btn-zh")?.addEventListener("click", () => {
+    applyLanguage("zh");
+  });
+
+  document.getElementById("lang-btn-en")?.addEventListener("click", () => {
+    applyLanguage("en");
+  });
+}
+
+function applyLanguage(lang: Lang) {
+  setLanguage(lang);
+
+  // 更新切换按钮高亮
+  const btnZh = document.getElementById("lang-btn-zh");
+  const btnEn = document.getElementById("lang-btn-en");
+  if (lang === "zh") {
+    btnZh?.classList.add("active");
+    btnEn?.classList.remove("active");
+  } else {
+    btnEn?.classList.add("active");
+    btnZh?.classList.remove("active");
+  }
+
+  // 更新所有 data-i18n 元素
+  document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
+    const key = el.dataset.i18n as keyof typeof translations.zh;
+    if (key && translations[lang][key]) {
+      el.textContent = translations[lang][key];
+    }
+  });
+
+  // 更新搜索 placeholder
+  const searchInput = document.getElementById("account-search") as HTMLInputElement;
+  if (searchInput) {
+    searchInput.placeholder = t("searchPlaceholder");
+  }
+
+  // 重新渲染卡片
+  renderProviderCards();
+  updateActiveBadge();
+  syncStateTexts();
+}
+
+// 状态类文案由 JS 按运行/折叠状态维护，切语言后要重刷，否则会退回 data-i18n 的默认文案
+function syncStateTexts() {
+  setRunButton(isRunning);
+
+  const drawer = document.getElementById("terminal-drawer");
+  const toggle = document.getElementById("btn-toggle-terminal");
+  if (toggle) {
+    toggle.textContent = drawer?.classList.contains("collapsed") ? t("termExpand") : t("termCollapse");
+  }
+
+  renderStatusText();
+}
+
+function renderStatusText() {
+  const statusText = document.getElementById("status-summary-text");
+  if (!statusText) return;
+  if (lastExitCode === null) {
+    statusText.textContent = t("heroReady");
+    return;
+  }
+  statusText.textContent =
+    lastExitCode === 0 ? t("heroFinished") : t("heroFinishedCode", { code: lastExitCode });
+}
+
+// 2. 主题切换
+function setupTheme() {
+  const savedTheme = localStorage.getItem("aipunch_theme") || "dark";
+  applyTheme(savedTheme);
+
+  document.getElementById("theme-btn-light")?.addEventListener("click", () => {
+    applyTheme("light");
+  });
+
+  document.getElementById("theme-btn-dark")?.addEventListener("click", () => {
+    applyTheme("dark");
+  });
+}
+
+function applyTheme(theme: string) {
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("aipunch_theme", theme);
+
+  const btnLight = document.getElementById("theme-btn-light");
+  const btnDark = document.getElementById("theme-btn-dark");
+
+  if (theme === "light") {
+    btnLight?.classList.add("active");
+    btnDark?.classList.remove("active");
+  } else {
+    btnDark?.classList.add("active");
+    btnLight?.classList.remove("active");
+  }
+}
+
+// 3. 导航切换与搜索
+function setupNavigation() {
+  const navItems = document.querySelectorAll<HTMLButtonElement>(".nav-item");
+  navItems.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tabId = btn.dataset.tab;
+      if (!tabId) return;
+
+      navItems.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      document.querySelectorAll(".tab-pane").forEach((pane) => {
+        pane.classList.remove("active");
+      });
+      document.getElementById(`tab-${tabId}`)?.classList.add("active");
+    });
+  });
+
+  // 搜索过滤
+  const searchInput = document.getElementById("account-search") as HTMLInputElement;
+  searchInput?.addEventListener("input", (e) => {
+    const val = (e.target as HTMLInputElement).value.toLowerCase();
+    const cards = document.querySelectorAll<HTMLElement>(".provider-card");
+    cards.forEach((card) => {
+      const name = card.dataset.name?.toLowerCase() || "";
+      const account = card.dataset.account?.toLowerCase() || "";
+      const provider = card.dataset.provider?.toLowerCase() || "";
+      if (name.includes(val) || account.includes(val) || provider.includes(val)) {
+        card.style.display = "flex";
+      } else {
+        card.style.display = "none";
+      }
+    });
+  });
+}
+
+// 4. 终端控制与初始日志流（对齐设计图）
+function renderInitialTerminalLogs() {
+  const term = document.getElementById("terminal-output");
+  if (!term || term.children.length > 0) return;
+
+  const initialLogs = [
+    { text: t("termInit"), cls: "info" },
+    { text: t("termReady"), cls: "info" },
+  ];
+
+  initialLogs.forEach((item) => {
+    const lineEl = document.createElement("div");
+    lineEl.className = `log-line ${item.cls}`;
+    lineEl.textContent = item.text;
+    term.appendChild(lineEl);
+  });
+}
+
+function setupTerminalControls() {
+  const btnClear = document.getElementById("btn-clear-terminal");
+  btnClear?.addEventListener("click", () => {
+    const term = document.getElementById("terminal-output");
+    if (term) term.innerHTML = "";
+  });
+
+  // 常驻脚本（OAuth 等待回调等）可能永不退出，必须能手动终止
+  const btnStop = document.getElementById("btn-stop-script");
+  btnStop?.addEventListener("click", async () => {
+    try {
+      await invoke("stop_script");
+      appendTerminalLog("[STOP] 已请求终止当前任务");
+    } catch (e) {
+      appendTerminalLog(`[ERROR] Failed to stop script: ${e}`);
+    }
+  });
+
+  const btnToggle = document.getElementById("btn-toggle-terminal");
+  const drawer = document.getElementById("terminal-drawer");
+  btnToggle?.addEventListener("click", () => {
+    drawer?.classList.toggle("collapsed");
+    btnToggle.textContent = drawer?.classList.contains("collapsed") ? t("termExpand") : t("termCollapse");
+  });
+}
+
+function appendTerminalLog(line: string) {
+  const term = document.getElementById("terminal-output");
+  if (!term) return;
+
+  const lineEl = document.createElement("div");
+  lineEl.className = "log-line";
+
+  if (line.includes("200 OK") || line.includes("✔") || line.includes("[DONE]")) {
+    lineEl.classList.add("success");
+  } else if (line.includes("ERROR") || line.includes("Failed") || line.includes("code: 1")) {
+    lineEl.classList.add("error");
+  } else if (line.includes("WARN") || line.includes("Skip")) {
+    lineEl.classList.add("warn");
+  } else if (line.startsWith("[START]") || line.includes("Token")) {
+    lineEl.classList.add("info");
+  }
+
+  lineEl.textContent = line;
+  term.appendChild(lineEl);
+  term.scrollTop = term.scrollHeight;
+}
+
+// 5. 事件监听
+async function setupEventListeners() {
+  await listen<string>("console-log", (event) => {
+    appendTerminalLog(event.payload);
+  });
+
+  await listen<number>("script-finished", (event) => {
+    isRunning = false;
+    setRunButton(false);
+    const resolve = runnerResolve;
+    runnerResolve = null;
+    resolve?.(event.payload);
+    lastExitCode = event.payload;
+    renderStatusText();
+    loadConfigAndState();
+  });
+
+  document.getElementById("btn-run-all")?.addEventListener("click", () => {
+    runCheckinAll();
+  });
+
+  setupCredentialButtons();
+}
+
+// 6. 配置加载与卡片渲染（严格对齐设计图两列排版与按钮）
+async function loadConfigAndState() {
+  try {
+    const configStr = await invoke<string>("get_config");
+    currentConfig = JSON.parse(configStr);
+    // 凭证既可能在 .env，也可能由进程环境提供；把候选键交给后端一起判定
+    const envKeys = currentConfig.accounts
+      .flatMap((acc) => [acc.tokenEnv, acc.refreshTokenEnv])
+      .filter((key): key is string => !!key);
+    configuredEnvKeys = await invoke<string[]>("get_env_status", { keys: envKeys });
+
+    renderProviderCards();
+    updateActiveBadge();
+  } catch (e) {
+    appendTerminalLog(`[ERROR] Failed to load config: ${e}`);
+  }
+}
+
+function updateActiveBadge() {
+  const activeCount = currentConfig.accounts.filter((a) => a.enabled !== false).length;
+  const badge = document.getElementById("active-count-badge");
+  if (badge) {
+    badge.textContent = `${activeCount} ${t("activeBadge")}`;
+  }
+}
+
+function renderProviderCards() {
+  const container = document.getElementById("provider-cards-container");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  currentConfig.accounts.forEach((acc, idx) => {
+    const meta = PROVIDER_METAS[acc.provider] || {
+      name: acc.provider,
+      iconBg: "linear-gradient(135deg, #64748b 0%, #475569 100%)",
+      brandChar: acc.provider.charAt(0).toUpperCase(),
+      hintKey: "unknownHint" as const,
+    };
+
+    const hasCreds =
+      (acc.refreshTokenEnv && configuredEnvKeys.includes(acc.refreshTokenEnv)) ||
+      (acc.tokenEnv && configuredEnvKeys.includes(acc.tokenEnv));
+
+    const isEnabled = acc.enabled !== false;
+    const statusClass = hasCreds ? (isEnabled ? "ready" : "linked") : "unconfigured";
+    const statusLabel = hasCreds ? (isEnabled ? t("cardReady") : t("cardLinked")) : t("cardUnset");
+    const pointsHintText = t(meta.hintKey);
+
+    const card = document.createElement("div");
+    card.className = "provider-card";
+    card.dataset.name = meta.name;
+    card.dataset.account = acc.name;
+    card.dataset.provider = acc.provider;
+
+    // config.json 可被外部编辑，所有落入 innerHTML 的值一律转义
+    const safeName = escapeHtml(meta.name);
+    const safeAccount = escapeHtml(acc.name);
+    const safeProvider = escapeHtml(acc.provider);
+
+    // 对齐设计图：第一行 Logo + Title + Switch；第二行 Status Badge + Points Hint；第三行通栏 1-Click Auth 按钮
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="provider-brand">
+          <div class="provider-icon-badge" style="background: ${escapeHtml(meta.iconBg)}">
+            ${escapeHtml(meta.brandChar)}
+          </div>
+          <div class="brand-text">
+            <h4>${safeName}</h4>
+            <div class="provider-id">${safeAccount}</div>
+          </div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" class="account-toggle" data-index="${idx}" ${isEnabled ? "checked" : ""} />
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <div class="card-middle">
+        <span class="status-tag ${statusClass}">${statusLabel}</span>
+        <span class="points-hint">${pointsHintText}</span>
+      </div>
+
+      <div class="card-bottom">
+        <button class="btn-auth-full" data-provider="${safeProvider}">${t("cardAuthBtn")}</button>
+        <button class="btn-icon-single" data-name="${safeAccount}" data-provider="${safeProvider}" title="${t("cardRunSingle")}">▶</button>
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+
+  // 绑定开关保存
+  container.querySelectorAll<HTMLInputElement>(".account-toggle").forEach((toggle) => {
+    toggle.addEventListener("change", async (e) => {
+      const idx = parseInt((e.target as HTMLInputElement).dataset.index || "0", 10);
+      currentConfig.accounts[idx].enabled = (e.target as HTMLInputElement).checked;
+      await saveCurrentConfig();
+      updateActiveBadge();
+    });
+  });
+
+  // 绑定单跑
+  container.querySelectorAll<HTMLButtonElement>(".btn-icon-single").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const provider = btn.dataset.provider;
+      const name = btn.dataset.name;
+      if (!provider || !name) return;
+      appendTerminalLog(`[ACTION] Triggering check-in for ${provider}/${name}...`);
+      void startRunner("checkin", ["--provider", provider, "--account", name]);
+    });
+  });
+
+  // 绑定 1-Click Auth
+  container.querySelectorAll<HTMLButtonElement>(".btn-auth-full").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const provider = btn.dataset.provider;
+      if (provider) openAuthModal(provider);
+    });
+  });
+}
+
+async function saveCurrentConfig() {
+  try {
+    await invoke("save_config", { content: JSON.stringify(currentConfig, null, 2) });
+    appendTerminalLog("[CONFIG] Saved config.json successfully.");
+  } catch (e) {
+    appendTerminalLog(`[ERROR] Failed to save config: ${e}`);
+  }
+}
+
+// 7. 执行签到：所有 runner 共用同一把锁，script-finished 时解锁并回传退出码
+function setRunButton(running: boolean) {
+  const btnStop = document.getElementById("btn-stop-script") as HTMLButtonElement | null;
+  if (btnStop) btnStop.disabled = !running;
+  const btnRunAll = document.getElementById("btn-run-all") as HTMLButtonElement | null;
+  const btnRunAllText = document.getElementById("btn-run-all-text");
+  if (!btnRunAll || !btnRunAllText) return;
+  btnRunAll.disabled = running;
+  btnRunAllText.textContent = running ? t("heroRunning") : t("heroRunAll");
+}
+
+async function startRunner(
+  scriptName: string,
+  args: string[],
+  env?: Record<string, string>,
+): Promise<number> {
+  if (isRunning) {
+    appendTerminalLog("[WARN] 已有任务在运行，请等待结束后再试");
+    return -1;
+  }
+  isRunning = true;
+  setRunButton(true);
+  document.getElementById("terminal-drawer")?.classList.remove("collapsed");
+  appendTerminalLog(`[RUNNER] Launching ${scriptName}...`);
+
+  return new Promise<number>((resolve) => {
+    runnerResolve = resolve;
+    invoke("run_script_stream", { scriptName, args, env: env ?? {} }).catch((e) => {
+      if (runnerResolve === resolve) runnerResolve = null;
+      isRunning = false;
+      setRunButton(false);
+      appendTerminalLog(`[ERROR] Runner failed to start: ${e}`);
+      resolve(-1);
+    });
+  });
+}
+
+function runCheckinAll() {
+  void startRunner("checkin", []);
+}
+
+// 8. 隐私开关
+async function loadPrivacyState() {
+  try {
+    const isPrivate = await invoke<boolean>("get_privacy_mode");
+    const heroSwitch = document.getElementById("hero-privacy-switch") as HTMLInputElement | null;
+    const fullSwitch = document.getElementById("full-privacy-switch") as HTMLInputElement | null;
+    if (heroSwitch) heroSwitch.checked = isPrivate;
+    if (fullSwitch) fullSwitch.checked = isPrivate;
+  } catch (e) {
+    console.error("Failed to load privacy mode:", e);
+  }
+}
+
+async function loadPrivacyMode() {
+  await loadPrivacyState();
+
+  const heroSwitch = document.getElementById("hero-privacy-switch") as HTMLInputElement | null;
+  const fullSwitch = document.getElementById("full-privacy-switch") as HTMLInputElement | null;
+
+  const onPrivacyChange = async (e: Event) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    if (heroSwitch) heroSwitch.checked = checked;
+    if (fullSwitch) fullSwitch.checked = checked;
+    try {
+      await invoke("set_privacy_mode", { enabled: checked });
+      appendTerminalLog(`[PRIVACY] CHECKIN_NO_DISCOVERY set to ${checked}`);
+    } catch (err) {
+      appendTerminalLog(`[ERROR] Failed to save privacy mode: ${err}`);
+    }
+  };
+
+  heroSwitch?.addEventListener("change", onPrivacyChange);
+  fullSwitch?.addEventListener("change", onPrivacyChange);
+}
+
+// 8.1 项目根目录：打包后运行位置可能不在仓库内，需要显式指定 config.json / .env 所在目录
+async function setupProjectRoot() {
+  const input = document.getElementById("input-project-root") as HTMLInputElement | null;
+  const saveBtn = document.getElementById("btn-save-project-root");
+  if (!input || !saveBtn) return;
+
+  try {
+    input.value = await invoke<string>("get_project_root");
+  } catch (e) {
+    console.warn("Failed to read project root:", e);
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    const path = input.value.trim();
+    if (!path) return;
+    try {
+      await invoke("set_project_root", { path });
+      appendTerminalLog(`[CONFIG] 项目根目录已设为 ${path}`);
+      await loadConfigAndState();
+      await loadPrivacyState();
+    } catch (e) {
+      appendTerminalLog(`[ERROR] 项目根目录无效: ${e}`);
+    }
+  });
+}
+
+// 9. 凭据向导绑定与执行
+function setupCredentialButtons() {
+  document.getElementById("btn-import-qoder")?.addEventListener("click", () => openAuthModal("qoder"));
+  document.getElementById("btn-import-trae")?.addEventListener("click", () => startRunner("trae-extract", []));
+  document.getElementById("btn-import-codearts")?.addEventListener("click", () => startRunner("codearts-login", []));
+  document.getElementById("btn-import-autoclaw")?.addEventListener("click", () => openAuthModal("autoclaw-intl"));
+  document.getElementById("btn-import-workbuddy")?.addEventListener("click", () => openAuthModal("workbuddy"));
+  document.getElementById("btn-import-autoclaw-cn")?.addEventListener("click", () => openAuthModal("autoclaw-cn"));
+
+  document.getElementById("btn-modal-close")?.addEventListener("click", closeModal);
+  document.getElementById("btn-modal-cancel")?.addEventListener("click", closeModal);
+}
+
+interface ProviderAuthMeta {
+  name: string;
+  webUrl: string;
+  localApp?: string;
+  envKey: string;
+}
+
+const AUTH_DETAILS: Record<string, ProviderAuthMeta> = {
+  qoder: {
+    name: "Qoder",
+    webUrl: "https://qoder.cn",
+    localApp: "Qoder",
+    envKey: "QODER_REFRESH_TOKEN",
+  },
+  trae: {
+    name: "Trae",
+    webUrl: "https://trae.cn",
+    localApp: "Trae",
+    envKey: "TRAE_REFRESH_TOKEN",
+  },
+  codearts: {
+    name: "Huawei CodeArts",
+    webUrl: "https://auth.huaweicloud.com",
+    envKey: "CODEARTS_REFRESH_TOKEN",
+  },
+  "autoclaw-intl": {
+    name: "AutoClaw Intl",
+    webUrl: "https://autoclaw.ai",
+    localApp: "AutoClaw",
+    envKey: "AUTOCLAW_INTL_REFRESH_TOKEN",
+  },
+  workbuddy: {
+    name: "WorkBuddy",
+    webUrl: "https://workbuddy.cn",
+    localApp: "WorkBuddy",
+    envKey: "WORKBUDDY_REFRESH_TOKEN",
+  },
+  "autoclaw-cn": {
+    name: "AutoClaw CN",
+    webUrl: "https://autoglm.cn",
+    localApp: "AutoClaw",
+    envKey: "AUTOCLAW_REFRESH_TOKEN",
+  },
+  autoclaw: {
+    name: "AutoClaw CN",
+    webUrl: "https://autoglm.cn",
+    localApp: "AutoClaw",
+    envKey: "AUTOCLAW_REFRESH_TOKEN",
+  },
+};
+
+function openAuthModal(provider: string) {
+  const modal = document.getElementById("modal-container");
+  const title = document.getElementById("modal-title");
+  const body = document.getElementById("modal-body");
+  const confirmBtn = document.getElementById("btn-modal-confirm");
+
+  if (!modal || !title || !body || !confirmBtn) return;
+
+  const meta = AUTH_DETAILS[provider] || {
+    name: provider,
+    webUrl: "https://google.com",
+    envKey: `${provider.toUpperCase()}_TOKEN`,
+  };
+
+  title.textContent = `${meta.name} - ${getCurrentLang() === "zh" ? "官方授权与凭证导入" : "Auth & Credentials"}`;
+
+  // provider 可能来自外部编辑的 config.json，回退值需转义后再进 innerHTML
+  const safeMetaName = escapeHtml(meta.localApp || meta.name);
+  const safeEnvKey = escapeHtml(meta.envKey);
+
+  // 渲染多模态卡片列表
+  body.innerHTML = `
+    <div class="auth-modal-modes">
+      <!-- 途径 1：官方网页 / 浏览器登录 -->
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("tabBrowser")}</span>
+          <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7;">Web</span>
+        </div>
+        <p class="auth-option-desc">
+          ${getCurrentLang() === "zh" ? "在系统浏览器打开官方登录页，支持微信扫码、账号密码、第三方 SSO 等任意官方登录方式。" : "Open the official login portal in your default browser. Supports QR scan, password, SSO, and any official sign-in method."}
+        </p>
+        <div class="auth-option-action">
+          <button id="btn-open-web" class="btn-secondary" style="flex: 1;">${t("btnOpenOfficialWeb")}</button>
+        </div>
+      </div>
+
+      <!-- 途径 2：调起本地客户端 / 本地提取 -->
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("tabLocalApp")}</span>
+          <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">App</span>
+        </div>
+        <p class="auth-option-desc">
+          ${provider === "trae" 
+            ? (getCurrentLang() === "zh" ? "直接解密读取本机 Trae 桌面客户端已登录数据，免手动输入。" : "Directly decrypt and extract credentials from local Trae client storage.") 
+            : (getCurrentLang() === "zh" ? `调起本机已安装的 ${safeMetaName} 桌面客户端进行登录。` : `Launch installed ${safeMetaName} desktop app.`)}
+        </p>
+        <div class="auth-option-action">
+          ${provider === "trae" 
+            ? `<button id="btn-run-trae-extract" class="btn-secondary" style="flex: 1;">一键解密本地凭证</button>` 
+            : `<button id="btn-launch-app" class="btn-secondary" style="flex: 1;">${t("btnOpenLocalApp")} (${safeMetaName})</button>`}
+        </div>
+      </div>
+
+      <!-- 途径 3：快捷验证或专属流 -->
+      ${getProviderSpecificWizardHtml(provider)}
+
+      <!-- 途径 4：手动粘贴 Token -->
+      ${getManualTokenCardHtml(provider, safeEnvKey)}
+    </div>
+  `;
+
+  // 隐藏全局确认按钮，由卡片内各自的具体动作驱动
+  confirmBtn.style.display = "none";
+
+  // 事件绑定：打开官方网页
+  document.getElementById("btn-open-web")?.addEventListener("click", async () => {
+    try {
+      await invoke("open_external", { target: meta.webUrl });
+      appendTerminalLog(`[BROWSER] Opened official web portal: ${meta.webUrl}`);
+    } catch (e) {
+      appendTerminalLog(`[ERROR] Failed to open URL: ${e}`);
+    }
+  });
+
+  // 事件绑定：打开本地 APP
+  document.getElementById("btn-launch-app")?.addEventListener("click", async () => {
+    const appName = meta.localApp || meta.name;
+    try {
+      await invoke("open_external", { target: appName });
+      appendTerminalLog(`[APP] Launched local application: ${appName}`);
+    } catch (e) {
+      appendTerminalLog(`[ERROR] Failed to launch application: ${e}`);
+    }
+  });
+
+  // 事件绑定：Trae 一键解密
+  document.getElementById("btn-run-trae-extract")?.addEventListener("click", () => {
+    closeModal();
+    startRunner("trae-extract", []);
+  });
+
+  // 事件绑定：手动保存 Token
+  document.getElementById("btn-save-manual-token")?.addEventListener("click", async () => {
+    const token = (document.getElementById("input-manual-token") as HTMLInputElement)?.value.trim();
+    if (!token) return;
+    try {
+      await invoke("set_env_variable", { key: meta.envKey, value: token });
+      appendTerminalLog(`[OK] Saved ${meta.envKey} successfully.`);
+      closeModal();
+      loadConfigAndState();
+    } catch (e) {
+      appendTerminalLog(`[ERROR] Failed to save token: ${e}`);
+    }
+  });
+
+  // 绑定专属向导事件
+  bindProviderSpecificEvents(provider);
+
+  modal.classList.remove("hidden");
+}
+
+// Trae 必须同时有设备号（TRAE_DEVICE_ID）、CodeArts 必须同时有 DPoP 私钥（CODEARTS_DPOP_KEY），
+// 只粘贴 refreshToken 存不出能用的凭证，这两个平台只能走专属向导，不给手填入口
+const MANUAL_TOKEN_UNSUPPORTED = new Set(["trae", "codearts"]);
+
+function getManualTokenCardHtml(provider: string, safeEnvKey: string): string {
+  if (MANUAL_TOKEN_UNSUPPORTED.has(provider)) return "";
+  return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("tabManual")} (${safeEnvKey})</span>
+        </div>
+        <p class="auth-option-desc">
+          ${t("manualTokenDesc")}
+        </p>
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+          <input type="password" id="input-manual-token" class="form-input" placeholder="${t("manualTokenPlaceholder")}" />
+          <button id="btn-save-manual-token" class="btn-secondary" style="white-space: nowrap;">${t("btnSaveManualToken")}</button>
+        </div>
+      </div>`;
+}
+
+function getProviderSpecificWizardHtml(provider: string): string {
+  if (provider === "qoder") {
+    return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("wizardQoderTitle")}</span>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+          <input type="text" id="input-qoder-pat" class="form-input" placeholder="${t("wizardQoderPlaceholder")}" />
+          <button id="btn-exchange-pat" class="btn-primary" style="white-space: nowrap;">${t("wizardQoderBtn")}</button>
+        </div>
+      </div>
+    `;
+  } else if (provider === "codearts") {
+    return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("wizardCodeartsTitle")}</span>
+        </div>
+        <p class="auth-option-desc">${t("wizardCodeartsDesc")}</p>
+        <div class="auth-option-action">
+          <button id="btn-run-codearts-oauth" class="btn-primary" style="flex: 1;">${t("wizardCodeartsBtn")}</button>
+        </div>
+      </div>
+    `;
+  } else if (provider === "autoclaw-intl") {
+    return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("wizardAutoclawTitle")}</span>
+        </div>
+        <p class="auth-option-desc">${t("wizardAutoclawDesc")}</p>
+        <div class="auth-option-action">
+          <button id="btn-run-autoclaw-intl" class="btn-primary" style="flex: 1;">${t("wizardAutoclawBtn")}</button>
+        </div>
+      </div>
+    `;
+  } else if (provider === "workbuddy" || provider === "autoclaw-cn" || provider === "autoclaw") {
+    const isWb = provider === "workbuddy";
+    return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t(isWb ? "wizardSmsTitleWorkbuddy" : "wizardSmsTitleAutoclaw")}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="input-phone" class="form-input" placeholder="${t("wizardPhonePlaceholder")}" maxlength="11" />
+            <button id="btn-send-sms" class="btn-secondary" style="white-space: nowrap; width: 120px;">${t("modalSendSms")}</button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="input-sms-code" class="form-input" placeholder="${t("wizardCodePlaceholder")}" maxlength="8" />
+            <button id="btn-verify-sms" class="btn-primary" style="white-space: nowrap; width: 120px;">${t("wizardSmsLoginBtn")}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  return "";
+}
+
+function bindProviderSpecificEvents(provider: string) {
+  if (provider === "qoder") {
+    document.getElementById("btn-exchange-pat")?.addEventListener("click", () => {
+      const pat = (document.getElementById("input-qoder-pat") as HTMLInputElement)?.value.trim();
+      if (!pat) return;
+      closeModal();
+      startRunner("qoder-login", [], { QODER_PAT: pat });
+    });
+  } else if (provider === "codearts") {
+    document.getElementById("btn-run-codearts-oauth")?.addEventListener("click", () => {
+      closeModal();
+      startRunner("codearts-login", []);
+    });
+  } else if (provider === "autoclaw-intl") {
+    document.getElementById("btn-run-autoclaw-intl")?.addEventListener("click", () => {
+      closeModal();
+      startRunner("autoclaw-intl-login", ["--oauth"]);
+    });
+  } else if (provider === "workbuddy" || provider === "autoclaw-cn" || provider === "autoclaw") {
+    const isWb = provider === "workbuddy";
+    const sendBtn = document.getElementById("btn-send-sms") as HTMLButtonElement;
+    sendBtn?.addEventListener("click", async () => {
+      const phone = (document.getElementById("input-phone") as HTMLInputElement)?.value.trim();
+      if (!/^\d{11}$/.test(phone)) {
+        appendTerminalLog("[ERROR] 手机号必须为 11 位数字");
+        return;
+      }
+      sendBtn.disabled = true;
+      sendBtn.textContent = t("modalSending");
+      const scriptName = isWb ? "login" : "autoclaw-login";
+      // 手机号/验证码走环境变量，避免出现在 ps 的命令行里
+      const exitCode = await startRunner(scriptName, ["--send-sms"], { AIPUNCH_LOGIN_PHONE: phone });
+      if (exitCode !== 0) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = t("modalSendSms");
+        return;
+      }
+
+      let countdown = 60;
+      const timer = setInterval(() => {
+        countdown--;
+        if (countdown > 0) {
+          sendBtn.textContent = t("modalSent", { seconds: countdown });
+        } else {
+          clearInterval(timer);
+          sendBtn.disabled = false;
+          sendBtn.textContent = t("modalSendSms");
+        }
+      }, 1000);
+    });
+
+    document.getElementById("btn-verify-sms")?.addEventListener("click", () => {
+      const phone = (document.getElementById("input-phone") as HTMLInputElement)?.value.trim();
+      const code = (document.getElementById("input-sms-code") as HTMLInputElement)?.value.trim();
+      if (!phone || !code) return;
+      closeModal();
+      const scriptName = isWb ? "login" : "autoclaw-login";
+      startRunner(scriptName, ["--phone", "--code"], {
+        AIPUNCH_LOGIN_PHONE: phone,
+        AIPUNCH_LOGIN_CODE: code,
+      });
+    });
+  }
+}
+
+function closeModal() {
+  document.getElementById("modal-container")?.classList.add("hidden");
+}
+
+
+// 自动更新控制
+let pendingUpdate: Update | null = null;
+let isUpdating = false;
+
+function setupUpdaterControls() {
+  const checkBtn = document.getElementById("btn-check-update");
+  const btnText = document.getElementById("update-btn-text");
+  const statusMsg = document.getElementById("update-status-msg");
+
+  async function performCheck(manual = false) {
+    if (isUpdating) return;
+    if (manual) {
+      checkBtn?.classList.add("loading");
+      if (btnText) btnText.textContent = t("checkingUpdate");
+      if (statusMsg) {
+        statusMsg.className = "update-status-msg";
+        statusMsg.textContent = t("checkingUpdate");
+        statusMsg.classList.remove("hidden");
+      }
+    }
+
+    try {
+      const update = await check();
+      if (update && update.available) {
+        pendingUpdate = update;
+        if (btnText) btnText.textContent = t("updateFound", { version: update.version });
+        if (statusMsg) {
+          statusMsg.className = "update-status-msg success";
+          statusMsg.textContent = `v${update.version} (${update.body || "New release"})`;
+          statusMsg.classList.remove("hidden");
+        }
+      } else {
+        pendingUpdate = null;
+        if (manual) {
+          if (btnText) btnText.textContent = t("updateLatest");
+          if (statusMsg) {
+            statusMsg.className = "update-status-msg success";
+            statusMsg.textContent = t("updateLatest");
+            statusMsg.classList.remove("hidden");
+            setTimeout(() => {
+              statusMsg?.classList.add("hidden");
+              if (btnText) btnText.textContent = t("checkUpdate");
+            }, 3000);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Update check failed:", err);
+      if (manual) {
+        if (btnText) btnText.textContent = t("checkUpdate");
+        if (statusMsg) {
+          statusMsg.className = "update-status-msg error";
+          statusMsg.textContent = t("updateFailed");
+          statusMsg.classList.remove("hidden");
+          setTimeout(() => statusMsg?.classList.add("hidden"), 3500);
+        }
+      }
+    } finally {
+      checkBtn?.classList.remove("loading");
+    }
+  }
+
+  checkBtn?.addEventListener("click", async () => {
+    if (pendingUpdate && pendingUpdate.available) {
+      isUpdating = true;
+      if (btnText) btnText.textContent = t("updateDownloading", { percent: "0" });
+      if (statusMsg) {
+        statusMsg.className = "update-status-msg";
+        statusMsg.textContent = t("updateDownloading", { percent: "0" });
+        statusMsg.classList.remove("hidden");
+      }
+
+      let downloaded = 0;
+      let contentLength = 0;
+
+      try {
+        await pendingUpdate.downloadAndInstall((event) => {
+          if (event.event === "Started") {
+            contentLength = event.data.contentLength || 0;
+          } else if (event.event === "Progress") {
+            downloaded += event.data.chunkLength;
+            const pct = contentLength ? Math.round((downloaded / contentLength) * 100) : 50;
+            if (btnText) btnText.textContent = t("updateDownloading", { percent: String(pct) });
+            if (statusMsg) statusMsg.textContent = t("updateDownloading", { percent: String(pct) });
+          } else if (event.event === "Finished") {
+            if (btnText) btnText.textContent = t("updateReady");
+            if (statusMsg) {
+              statusMsg.className = "update-status-msg success";
+              statusMsg.textContent = t("updateReady");
+            }
+          }
+        });
+
+        if (statusMsg) statusMsg.textContent = "重启中 / Restarting...";
+        await invoke("restart_app");
+      } catch (err) {
+        console.error("Failed to install update:", err);
+        isUpdating = false;
+        if (statusMsg) {
+          statusMsg.className = "update-status-msg error";
+          statusMsg.textContent = `更新失败: ${err}`;
+        }
+      }
+    } else {
+      await performCheck(true);
+    }
+  });
+
+  // 静默启动检查（延迟 3 秒，避免阻塞应用初始化）
+  setTimeout(() => {
+    performCheck(false).catch(() => {});
+  }, 3000);
+}
+
+window.addEventListener("DOMContentLoaded", init);

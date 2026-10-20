@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadDotEnv, setEnvValue, updateEnvValue } from './dotenv.ts';
@@ -73,6 +73,20 @@ test('setEnvValue 读写文件（不存在则创建）', () => {
   assert.equal(readFileSync(file, 'utf-8'), 'WORKBUDDY_REFRESH_TOKEN=v1\n');
   setEnvValue(file, 'WORKBUDDY_REFRESH_TOKEN', 'v2');
   assert.equal(readFileSync(file, 'utf-8'), 'WORKBUDDY_REFRESH_TOKEN=v2\n');
+});
+
+test('setEnvValue 新建 .env 为 0600（文件里有 token）', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'dotenv-')), '.env');
+  setEnvValue(file, 'WORKBUDDY_REFRESH_TOKEN', 'v1');
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+});
+
+test('setEnvValue 把已存在的宽松权限 .env 收紧到 0600', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'dotenv-')), '.env');
+  writeFileSync(file, 'A=1\n');
+  chmodSync(file, 0o644);
+  setEnvValue(file, 'WORKBUDDY_REFRESH_TOKEN', 'v2');
+  assert.equal(statSync(file).mode & 0o777, 0o600);
 });
 
 test('多 Provider .env 轮换回写：只改目标变量，其他 Provider 的值原样保留', () => {
