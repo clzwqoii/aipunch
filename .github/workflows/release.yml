@@ -37,6 +37,9 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          # 生成版本变更列表需要完整 tag 历史
+          fetch-depth: 0
 
       - name: 校验 tag 与 tauri.conf.json 版本一致
         if: github.event_name == 'push'
@@ -93,6 +96,34 @@ jobs:
           npm test
           npm --prefix shell test
 
+      - name: 生成版本变更说明
+        id: changelog
+        shell: bash
+        env:
+          TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
+        run: |
+          TARGET="$TAG_NAME"
+          git rev-parse -q --verify "$TARGET^{commit}" >/dev/null || TARGET=HEAD
+          PREV=$(git describe --tags --abbrev=0 "$TARGET^" 2>/dev/null || true)
+          if [ -n "$PREV" ]; then
+            RANGE="$PREV..$TARGET"
+            LINK="https://github.com/$GITHUB_REPOSITORY/compare/$PREV...$TARGET"
+          else
+            RANGE="$TARGET"
+            LINK=""
+          fi
+          {
+            echo "notes<<EOF"
+            echo "### 本版本变更"
+            echo
+            git log --no-merges --pretty='- %s' "$RANGE" | grep -v '^- release: ' || true
+            if [ -n "$LINK" ]; then
+              echo
+              echo "完整差异：$LINK"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: 构建并打包发布 Tauri 应用
         if: github.event_name == 'push' || inputs.publish
         # 代码签名/公证需要 Apple 证书，仓库暂无相应 secrets：
@@ -121,10 +152,10 @@ jobs:
 
             > macOS 构建未做 Apple 公证，首次打开若提示「已损坏」或「无法验证开发者」，
             > 请右键 `AIPunch.app` →「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/AIPunch.app`。
+
+            ${{ steps.changelog.outputs.notes }}
           releaseDraft: false
           prerelease: false
-          # 静态 releaseBody 只作功能概述，变更列表由 GitHub 按提交自动生成
-          generateReleaseNotes: true
           args: ${{ matrix.args }}
 
       - name: 仅构建安装包（不发布）
