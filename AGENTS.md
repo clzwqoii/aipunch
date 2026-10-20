@@ -70,3 +70,11 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 - token 永不写入 `config.json`，只经 `tokenEnv`/`refreshTokenEnv` 从环境变量 / GitHub Secrets 读取。
 - 凭证发现（L2，规划中）仅限桌面壳，仅读已注册 Provider 显式声明的白名单路径，`CHECKIN_NO_DISCOVERY=1` 可完全关闭。
 - 逆向接口均非官方公开 API，上游可能随时变更；仅用于自有账号，遵守各平台服务条款。
+
+## 发版门禁（Release Gate）
+
+- 每个 tag 的 GitHub Release 必须带可分发的安装包：`*aarch64.dmg`、updater 包（`*.app.tar.gz`）与 `latest.json`。只有 Source code 视为发布失败，必须排查 Actions 而不是口头交付。
+- Release 说明必须包含**本版本变更**：workflow 开启 `generateReleaseNotes: true`；静态 `releaseBody` 只能当功能概述，不得替代变更列表。
+- 发布完成后核对：`gh release view <tag> --json assets` 三类产物齐全；应用内「检查更新」能从 `latest.json` 读到该版本。
+- 首次发布或 Actions 未自动生成说明时，必须 `gh release edit <tag> --notes-file <file>` 补上版本说明，不允许留空或只有一句占位。
+- 推送 tag 前确认 Actions 构建可成功（本地 `npm run release <ver> -- --dry-run` 通过）；构建产物由 CI 重新生成，不使用本地 DMG 冒充发布产物。

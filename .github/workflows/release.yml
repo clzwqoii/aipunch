@@ -103,4 +103,6 @@ jobs:
             > 请右键 `AIPunch.app` →「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/AIPunch.app`。
           releaseDraft: false
           prerelease: false
+          # 静态 releaseBody 只作功能概述，变更列表由 GitHub 按提交自动生成
+          generateReleaseNotes: true
           args: '--target aarch64-apple-darwin'
