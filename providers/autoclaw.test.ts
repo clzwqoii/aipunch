@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoclaw, autoclawIntl } from './autoclaw.ts';
+import { autoclaw, autoclawIntl, parseAutoclawBalance } from './autoclaw.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'autoclaw', name: 'main', token: 'at-1' };
@@ -15,6 +15,7 @@ function ctxWith(fetchImpl: typeof fetch): RunContext {
 function mockAutoClaw(handlers: {
   checkin?: () => Response;
   refresh?: () => Response;
+  wallets?: () => Response;
   onCall?: (url: string, init?: RequestInit) => void;
 }): typeof fetch {
   return (async (url: string | URL | Request, init?: RequestInit) => {
@@ -22,6 +23,8 @@ function mockAutoClaw(handlers: {
     handlers.onCall?.(u, init);
     if (u.includes('/userapi/v1/refresh') || u.includes('/userapi/v1/agent-refresh')) return handlers.refresh!();
     if (u.includes('/autoclaw-task-complete')) return handlers.checkin!();
+    // 余额接口默认不可读：既有用例不关心余额
+    if (u.includes('/agent-assetmgr/api/v2/wallets')) return handlers.wallets?.() ?? new Response('{"code":1}', { status: 200 });
     throw new Error(`unexpected url: ${u}`);
   }) as typeof fetch;
 }
@@ -225,4 +228,22 @@ test('缺少凭证判定失败且不发起请求', async () => {
   const result = await autoclaw.checkin({ provider: 'autoclaw', name: 'main', token: '' }, ctx);
   assert.equal(result.ok, false);
   assert.equal(called, false);
+});
+
+test('parseAutoclawBalance 读取 total_balance', () => {
+  assert.deepEqual(parseAutoclawBalance({ code: 0, data: { total_balance: 1234.5 } }), { remain: 1234.5 });
+  assert.equal(parseAutoclawBalance({ code: 1 }), null);
+  assert.equal(parseAutoclawBalance({ code: 0, data: {} }), null);
+});
+
+test('签到结果附带剩余积分（余额查询失败不影响签到）', async () => {
+  const ctx = ctxWith(
+    mockAutoClaw({
+      checkin: () => CHECKIN_OK(),
+      wallets: () => new Response(JSON.stringify({ code: 0, data: { total_balance: 1234.5 } }), { status: 200 }),
+    }),
+  );
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.match(result.message, /剩余 1234.5 积分/);
 });

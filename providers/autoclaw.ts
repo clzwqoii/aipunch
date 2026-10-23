@@ -66,6 +66,34 @@ export function signedHeaders(token: string, opts: { web?: boolean } = {}): Reco
   return headers;
 }
 
+// 积分余额（magpie 实测）：GET /agent-assetmgr/api/v2/wallets?biz_app_id=autoclaw
+// 响应 { code:0, data:{ total_balance, wallets[] } }
+const WALLETS_PATH = '/agent-assetmgr/api/v2/wallets?biz_app_id=autoclaw';
+
+export function parseAutoclawBalance(body: unknown): { remain: number } | null {
+  const root = (body ?? {}) as { code?: unknown; data?: Record<string, unknown> };
+  if (root.code !== undefined && Number(root.code) !== 0) return null;
+  const total = Number(root.data?.total_balance);
+  if (!Number.isFinite(total)) return null;
+  return { remain: Math.round(total * 100) / 100 };
+}
+
+interface BalanceResult {
+  balance: { remain: number } | null;
+  error?: string; // 仅进 detail（verbose 可见），不影响签到判定
+}
+
+async function queryBalance(token: string, base: string, ctx: RunContext): Promise<BalanceResult> {
+  try {
+    const res = await ctx.fetch(`${base}${WALLETS_PATH}`, { headers: signedHeaders(token) });
+    const { data, text } = await parseJson(res);
+    const balance = parseAutoclawBalance(data);
+    return { balance, error: balance ? undefined : `HTTP ${res.status} ${text.slice(0, 200)}` };
+  } catch (err) {
+    return { balance: null, error: (err as Error).message };
+  }
+}
+
 type JsonBody = {
   code?: number;
   msg?: string;
@@ -176,6 +204,10 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
       return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
     }
 
+    const balanceResult = await queryBalance(accessToken, baseUrl(), ctx);
+    const balance = balanceResult.balance;
+    const balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
+
     const res = await ctx.fetch(`${baseUrl()}/autoclaw-proxy/proxy/autoclaw-task-complete`, {
       method: 'POST',
       headers: signedHeaders(accessToken),
@@ -206,15 +238,15 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
     if (alreadyCompleted || rewardPoints === 0) {
       return {
         ok: true,
-        message: alreadyCompleted ? '今日已签到（服务端幂等跳过）' : '签到成功（本次无积分奖励）',
-        detail: { status: res.status, body: data, rotatedRefreshToken },
+        message: `${alreadyCompleted ? '今日已签到（服务端幂等跳过）' : '签到成功（本次无积分奖励）'}${balanceSuffix}`,
+        detail: { status: res.status, body: data, balance, balanceError: balanceResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
     return {
       ok: true,
-      message: `签到成功：+${rewardPoints} 积分`,
-      detail: { status: res.status, body: data, rotatedRefreshToken },
+      message: `签到成功：+${rewardPoints} 积分${balanceSuffix}`,
+      detail: { status: res.status, body: data, balance, balanceError: balanceResult.error, rotatedRefreshToken },
       rotatedRefreshToken,
     };
     },
