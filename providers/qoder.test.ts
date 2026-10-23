@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { qoder, exchangePat } from './qoder.ts';
+import { qoder, exchangePat, parseQoderUsage } from './qoder.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'qoder', name: 'main', token: '', refreshToken: 'drt-1' };
@@ -187,4 +187,45 @@ test('Cosy-MachineToken 环境变量透传到请求头', async () => {
     if (prev === undefined) delete process.env.QODER_COSY_MACHINE_TOKEN;
     else process.env.QODER_COSY_MACHINE_TOKEN = prev;
   }
+});
+
+test('parseQoderUsage 取 userQuota 的额度与已用', () => {
+  assert.deepEqual(
+    parseQoderUsage({
+      displayMode: 'qoder',
+      qoderUsage: { userQuota: { total: 1000, used: 250, remaining: 750, unit: 'credits' } },
+    }),
+    { limit: 1000, used: 250, remain: 750 },
+  );
+  assert.equal(parseQoderUsage({ displayMode: 'enterprise' }), null);
+  assert.equal(parseQoderUsage({}), null);
+});
+
+test('parseQoderUsage 兼容 snake_case 与 cap/remaining', () => {
+  assert.deepEqual(
+    parseQoderUsage({ displayMode: 'qoder', qoderUsage: { user_quota: { cap: 500, remaining: 300 } } }),
+    { limit: 500, used: 200, remain: 300 },
+  );
+});
+
+test('签到结果附带剩余额度（usage 查询失败不影响签到）', async () => {
+  const ctx = ctxWith((async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.includes('/deviceToken/refresh')) {
+      return new Response(JSON.stringify({ token: 'fresh-dt', refresh_token: 'drt-2' }), { status: 200 });
+    }
+    if (u.includes('/sash/api/v2/me/usage')) {
+      return new Response(
+        JSON.stringify({ displayMode: 'qoder', qoderUsage: { userQuota: { total: 1000, used: 250, remaining: 750 } } }),
+        { status: 200 },
+      );
+    }
+    if (u.includes('/me/campaigns') && !u.includes('/claim')) {
+      return new Response(JSON.stringify({ campaigns: [] }), { status: 200 });
+    }
+    return new Response('{}', { status: 500 });
+  }) as typeof fetch);
+  const result = await qoder.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.match(result.message, /剩余 750\/1000/);
 });

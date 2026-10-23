@@ -117,6 +117,43 @@ export async function exchangePat(
   return { token, refreshToken };
 }
 
+// 账户额度（magpie 实测：PAT 作业令牌可读）：GET /sash/api/v2/me/usage
+// 响应 { displayMode:'qoder'|'enterprise', qoderUsage:{ userQuota:{ total|cap, used, remaining } } }
+export interface QoderUsage {
+  limit: number;
+  used: number;
+  remain: number;
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+export function parseQoderUsage(body: unknown): QoderUsage | null {
+  const env = (body ?? {}) as Record<string, unknown>;
+  if (env.displayMode !== 'qoder') return null;
+  const usage = env.qoderUsage as Record<string, unknown> | undefined;
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  const bucket = (usage.userQuota ?? usage.user_quota) as Record<string, unknown> | undefined;
+  if (!bucket) return null;
+  const limit = Number(bucket.total ?? bucket.cap);
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+  const remainRaw = Number(bucket.remaining);
+  const usedRaw = Number(bucket.used);
+  const remain = Number.isFinite(remainRaw) ? remainRaw : Number.isFinite(usedRaw) ? limit - usedRaw : NaN;
+  if (!Number.isFinite(remain) || remain < 0) return null;
+  const used = Number.isFinite(usedRaw) ? usedRaw : limit - remain;
+  return { limit: round2(limit), used: round2(used), remain: round2(remain) };
+}
+
+async function queryUsage(token: string, ctx: RunContext): Promise<QoderUsage | null> {
+  try {
+    const res = await ctx.fetch(`${BASE}/sash/api/v2/me/usage`, { headers: campaignHeaders(token) });
+    if (!res.ok) return null;
+    return parseQoderUsage(await res.json());
+  } catch {
+    return null; // 余额查询失败不影响签到判定
+  }
+}
+
 export const qoder: Provider = {
   id: 'qoder',
   name: 'Qoder',
@@ -136,6 +173,8 @@ export const qoder: Provider = {
       return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
     }
 
+    const usage = await queryUsage(accessToken, ctx);
+    const usageSuffix = usage ? `；剩余 ${usage.remain}/${usage.limit}` : '';
     const res = await ctx.fetch(`${BASE}/sash/api/v1/me/campaigns`, {
       headers: campaignHeaders(accessToken),
     });
@@ -153,8 +192,8 @@ export const qoder: Provider = {
     if (claimable.length === 0) {
       return {
         ok: true,
-        message: alreadyClaimed ? '今日已领取（服务端幂等跳过）' : '暂无可领取的签到活动（未开放或已结束）',
-        detail: { status: res.status, campaigns, rotatedRefreshToken },
+        message: `${alreadyClaimed ? '今日已领取（服务端幂等跳过）' : '暂无可领取的签到活动（未开放或已结束）'}${usageSuffix}`,
+        detail: { status: res.status, campaigns, usage, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
@@ -187,23 +226,23 @@ export const qoder: Provider = {
       return {
         ok: false,
         message: `领取失败 ${errors.length}/${claimable.length}: ${errors.join('; ')}`,
-        detail: { status: res.status, campaigns, rotatedRefreshToken },
+        detail: { status: res.status, campaigns, usage, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
     if (replayed && amounts.length === 0) {
       return {
         ok: true,
-        message: '今日已领取（服务端幂等回放）',
-        detail: { status: res.status, claimed: claimable.length, campaigns, rotatedRefreshToken },
+        message: `今日已领取（服务端幂等回放）${usageSuffix}`,
+        detail: { status: res.status, claimed: claimable.length, campaigns, usage, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
     const amountText = amounts.length > 0 ? `到账 ${amounts.join('+')} Credits` : '领取成功';
     return {
       ok: true,
-      message: `签到成功：${amountText}`,
-      detail: { status: res.status, claimed: claimable.length, campaigns, rotatedRefreshToken },
+      message: `签到成功：${amountText}${usageSuffix}`,
+      detail: { status: res.status, claimed: claimable.length, campaigns, usage, rotatedRefreshToken },
       rotatedRefreshToken,
     };
   },
