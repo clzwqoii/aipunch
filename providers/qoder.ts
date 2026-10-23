@@ -132,15 +132,33 @@ export function parseQoderUsage(body: unknown): QoderUsage | null {
   if (env.displayMode !== 'qoder') return null;
   const usage = env.qoderUsage as Record<string, unknown> | undefined;
   if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
-  const bucket = (usage.userQuota ?? usage.user_quota) as Record<string, unknown> | undefined;
-  if (!bucket) return null;
-  const limit = Number(bucket.total ?? bucket.cap);
-  if (!Number.isFinite(limit) || limit <= 0) return null;
-  const remainRaw = Number(bucket.remaining);
-  const usedRaw = Number(bucket.used);
-  const remain = Number.isFinite(remainRaw) ? remainRaw : Number.isFinite(usedRaw) ? limit - usedRaw : NaN;
-  if (!Number.isFinite(remain) || remain < 0) return null;
-  const used = Number.isFinite(usedRaw) ? usedRaw : limit - remain;
+  const dedicated = usage.dedicatedResourcePackages ?? usage.dedicated_resource_packages;
+  const buckets = [
+    usage.userQuota ?? usage.user_quota,
+    usage.addOnQuota ?? usage.add_on_quota,
+    usage.orgResourcePackage ?? usage.org_resource_package,
+    ...(Array.isArray(dedicated) ? dedicated : []),
+  ];
+  let limit = 0;
+  let used = 0;
+  let remain = 0;
+  let found = false;
+  for (const raw of buckets) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const bucket = raw as Record<string, unknown>;
+    const total = Number(bucket.total ?? bucket.cap);
+    if (!Number.isFinite(total) || total <= 0) continue;
+    const usedNum = Number(bucket.used);
+    const remainNum = Number(bucket.remaining);
+    const bucketRemain = Number.isFinite(remainNum) ? remainNum : Number.isFinite(usedNum) ? total - usedNum : NaN;
+    if (!Number.isFinite(bucketRemain)) continue;
+    const bucketUsed = Number.isFinite(usedNum) ? usedNum : total - bucketRemain;
+    limit += total;
+    used += bucketUsed;
+    remain += Math.max(0, bucketRemain);
+    found = true;
+  }
+  if (!found) return null;
   return { limit: round2(limit), used: round2(used), remain: round2(remain) };
 }
 
@@ -153,9 +171,9 @@ async function queryUsage(token: string, ctx: RunContext): Promise<UsageResult> 
   try {
     const res = await ctx.fetch(`${BASE}/sash/api/v2/me/usage`, { headers: campaignHeaders(token) });
     const text = await res.text();
-    if (!res.ok) return { usage: null, error: `HTTP ${res.status} ${text.slice(0, 4000)}` };
+    if (!res.ok) return { usage: null, error: `HTTP ${res.status} ${text.slice(0, 200)}` };
     const usage = parseQoderUsage(JSON.parse(text));
-    return usage ? { usage } : { usage: null, error: `unparsed ${text.slice(0, 4000)}` };
+    return usage ? { usage } : { usage: null, error: `unparsed ${text.slice(0, 200)}` };
   } catch (err) {
     return { usage: null, error: (err as Error).message };
   }

@@ -229,3 +229,16 @@ test('签到结果附带剩余额度（usage 查询失败不影响签到）', as
   assert.equal(result.ok, true);
   assert.match(result.message, /剩余 750\/1000/);
 });
+
+test('parseQoderUsage 汇总 addOnQuota（免费额度为 0 时）', () => {
+  assert.deepEqual(
+    parseQoderUsage({
+      displayMode: 'qoder',
+      qoderUsage: {
+        userQuota: { total: 0, used: 0, remaining: 0 },
+        addOnQuota: { total: 2900, used: 770, remaining: 2130 },
+      },
+    }),
+    { limit: 2900, used: 770, remain: 2130 },
+  );
+});
