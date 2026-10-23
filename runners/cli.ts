@@ -3,6 +3,7 @@ import { runCheckins } from '../core/executor.ts';
 import { loadConfig, resolveAccounts } from '../core/config.ts';
 import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
 import { fetchWithTimeout } from '../core/http.ts';
+import { installDnsFallback } from '../core/dns-fallback.ts';
 import { persistRotatedTokens, rotationNotices } from '../core/token-rotation.ts';
 import '../providers/index.ts';
 
@@ -16,6 +17,8 @@ function flagValue(args: string[], flag: string): string | undefined {
 
 async function main(): Promise<void> {
   loadDotEnv(); // 本地 .env（gitignored）中的凭证注入环境变量
+  // 代理残留会让系统 DNS 返回 fake-IP 或超时：进程内兜底走 DoH（CHECKIN_DNS_DOH=0 可关）
+  installDnsFallback();
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const verbose = args.includes('--verbose');
