@@ -186,19 +186,28 @@ export function parseCodeartsBalance(overview: unknown, pages: unknown[]): { rem
   return reached ? { remain: Math.round(remain * 100) / 100 } : null;
 }
 
-async function queryBalance(tokens: StsTokens, ctx: RunContext): Promise<{ remain: number } | null> {
+interface BalanceResult {
+  balance: { remain: number } | null;
+  error?: string; // 仅进 detail（verbose 可见），不影响签到判定
+}
+
+async function queryBalance(tokens: StsTokens, ctx: RunContext): Promise<BalanceResult> {
   try {
     const overviewRes = await signedRequest(tokens, 'GET', CREDIT_OVERVIEW_PATH, '', Buffer.from(''), ctx);
     const overview = await parseJson(overviewRes);
     const pages = [];
+    const errors: string[] = [];
+    if (overview.data?.code !== 0) errors.push(`overview HTTP ${overviewRes.status} ${overview.text.slice(0, 200)}`);
     for (const query of CREDIT_PAGE_QUERIES) {
       const res = await signedRequest(tokens, 'POST', CREDIT_PAGE_PATH, '', Buffer.from(JSON.stringify(query)), ctx);
       const parsed = await parseJson(res);
+      if (parsed.data?.code !== 0) errors.push(`page HTTP ${res.status} ${parsed.text.slice(0, 200)}`);
       pages.push(parsed.data?.code === 0 ? parsed.data : null);
     }
-    return parseCodeartsBalance(overview.data?.code === 0 ? overview.data : null, pages);
-  } catch {
-    return null; // 余额查询失败不影响签到判定
+    const balance = parseCodeartsBalance(overview.data?.code === 0 ? overview.data : null, pages);
+    return { balance, error: balance ? undefined : errors.join(' | ') || 'unparsed' };
+  } catch (err) {
+    return { balance: null, error: (err as Error).message };
   }
 }
 
@@ -219,8 +228,10 @@ export const codearts: Provider = {
       return { ok: false, message: (err as Error).message };
     }
 
-    const balance = await queryBalance(tokens, ctx);
+    const balanceResult = await queryBalance(tokens, ctx);
+    const balance = balanceResult.balance;
     const balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
+    const balanceError = balanceResult.error;
 
     const deliveryRes = await signedRequest(tokens, 'GET', DELIVERY_PATH, `channel=${OPS_CHANNEL}`, Buffer.from(''), ctx);
     const delivery = await parseJson(deliveryRes);
@@ -237,10 +248,10 @@ export const codearts: Provider = {
     }
     const campaign = findCampaign(delivery.data);
     if (!campaign) {
-      return { ok: true, message: `官方签到活动未开放${balanceSuffix}`, detail: { delivery: delivery.data, balance, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `官方签到活动未开放${balanceSuffix}`, detail: { delivery: delivery.data, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.endTime && Date.parse(campaign.endTime) <= ctx.now.getTime()) {
-      return { ok: true, message: `官方签到活动已结束${balanceSuffix}`, detail: { campaign, balance, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `官方签到活动已结束${balanceSuffix}`, detail: { campaign, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
 
     const confirm = async (): Promise<CheckinResult | null> => {
@@ -253,12 +264,12 @@ export const codearts: Provider = {
     };
 
     if (campaign.status === 'CONFIRMED' || campaign.status === 'CONSUMED') {
-      return { ok: true, message: `今日已签到${balanceSuffix}`, detail: { campaign, balance, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `今日已签到${balanceSuffix}`, detail: { campaign, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'CLAIMED') {
       // 已领未确认：只补第二步。confirm 失败必须报失败，否则当天封账后再不补确认
       const failure = await confirm();
-      return failure ?? { ok: true, message: `已补确认签到（积分已在 claim 时到账）${balanceSuffix}`, detail: { campaign, balance, rotatedRefreshToken }, rotatedRefreshToken };
+      return failure ?? { ok: true, message: `已补确认签到（积分已在 claim 时到账）${balanceSuffix}`, detail: { campaign, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'ELIGIBLE' && campaign.claimable === true) {
       const idempotentKey = `claim_${CAMPAIGN_DAILY_CREDIT}_${Date.now()}`;
@@ -284,7 +295,7 @@ export const codearts: Provider = {
       const failure = await confirm();
       if (failure) return failure;
       const amount = typeof campaign.benefitAmount === 'number' ? `：+${campaign.benefitAmount} 积分` : '';
-      return { ok: true, message: `签到成功${amount}${balanceSuffix}`, detail: { campaign, claim: claim.data, balance, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `签到成功${amount}${balanceSuffix}`, detail: { campaign, claim: claim.data, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     return { ok: false, message: '当前不可领取（活动存在但不可领）', detail: { campaign }, rotatedRefreshToken };
   },
