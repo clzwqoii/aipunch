@@ -1024,9 +1024,21 @@ html[data-theme="light"] .status-tag.unconfigured {
 }
 
 .points-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   font-size: 11.5px;
   color: var(--text-primary);
   font-weight: 600;
+}
+
+.points-hint .balance-line {
+  color: #7dd3fc;
+}
+
+.points-hint .balance-line[hidden] {
+  display: none;
 }
 
 /* 第三层：底部操作按钮区 */

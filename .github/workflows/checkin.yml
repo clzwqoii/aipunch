@@ -57,6 +57,7 @@ jobs:
           CHECKIN_PROVIDER: ${{ inputs.provider }}
           CHECKIN_ACCOUNT: ${{ inputs.account }}
           CHECKIN_VERBOSE: ${{ inputs.verbose }}
+          CHECKIN_RESULT_FILE: ${{ runner.temp }}/checkin-result.json
         run: |
           # RUNNER_TEMP 是 runner 上下文变量，只能通过 shell 环境变量使用（不能放进 env:）
           export CHECKIN_ROTATED_TOKEN_FILE="$RUNNER_TEMP/rotated-tokens.txt"
@@ -76,3 +77,10 @@ jobs:
             fi
           fi
           exit ${status:-0}
+      - name: 上传结构化结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkin-result
+          path: ${{ runner.temp }}/checkin-result.json
+          if-no-files-found: ignore

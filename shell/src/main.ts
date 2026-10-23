@@ -386,6 +386,53 @@ async function setupEventListeners() {
 }
 
 // 6. 配置加载与卡片渲染（严格对齐设计图两列排版与按钮）
+interface LastRunBalance {
+  remain: number;
+  limit?: number;
+  unlimited?: boolean;
+}
+
+interface LastRunEntry {
+  provider: string;
+  account: string;
+  balance: LastRunBalance | null;
+}
+
+let lastRunEntries: LastRunEntry[] = [];
+
+// 结构化结果由 ci-checkin 从 CI artifact 写入，卡片余额只读这份数据
+async function loadLastRun(): Promise<void> {
+  try {
+    const data = await invoke<{ results?: LastRunEntry[] } | null>("get_last_run");
+    lastRunEntries = Array.isArray(data?.results) ? data.results : [];
+  } catch {
+    lastRunEntries = [];
+  }
+  applyBalances();
+}
+
+function formatBalance(b: LastRunBalance): string {
+  if (b.unlimited) return "∞";
+  return b.limit && b.limit > 0 ? `${b.remain}/${b.limit}` : `${b.remain}`;
+}
+
+function applyBalances(): void {
+  document.querySelectorAll<HTMLElement>(".provider-card").forEach((card) => {
+    const el = card.querySelector<HTMLElement>("[data-balance]");
+    if (!el) return;
+    const entry = lastRunEntries.find(
+      (r) => r.provider === card.dataset.provider && r.account === card.dataset.account,
+    );
+    if (!entry?.balance) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    el.textContent = `${t("cardBalance")} ${formatBalance(entry.balance)}`;
+    el.hidden = false;
+  });
+}
+
 async function loadConfigAndState() {
   try {
     const configStr = await invoke<string>("get_config");
@@ -397,6 +444,7 @@ async function loadConfigAndState() {
     configuredEnvKeys = await invoke<string[]>("get_env_status", { keys: envKeys });
 
     renderProviderCards();
+    void loadLastRun();
     updateActiveBadge();
   } catch (e) {
     appendTerminalLog(`[ERROR] Failed to load config: ${e}`);
@@ -465,7 +513,10 @@ function renderProviderCards() {
 
       <div class="card-middle">
         <span class="status-tag ${statusClass}">${statusLabel}</span>
-        <span class="points-hint">${pointsHintText}</span>
+        <span class="points-hint">
+          <span class="balance-line" data-balance hidden></span>
+          <span class="hint-line">${pointsHintText}</span>
+        </span>
       </div>
 
       <div class="card-bottom">

@@ -159,6 +159,20 @@ fn get_config(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_last_run(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
+    // ci-checkin 下载 CI 产物后写入，卡片余额据此展示；不存在时返回 null
+    let root = find_project_root(&app)?;
+    let path = root.join(".aipunch-last-run.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str::<serde_json::Value>(&content)
+        .map(Some)
+        .map_err(|e| format!("Invalid JSON: {}", e))
+}
+
+#[tauri::command]
 fn save_config(app: AppHandle, content: String) -> Result<(), String> {
     // Validate that content is valid JSON
     let _v: serde_json::Value =
@@ -616,6 +630,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
+            get_last_run,
             get_env_status,
             get_privacy_mode,
             set_privacy_mode,

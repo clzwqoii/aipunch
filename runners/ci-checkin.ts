@@ -1,4 +1,8 @@
 import { execFile } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { ResultFile } from '../core/result.ts';
 
 // 桌面端「一键签到」= 触发 GitHub Actions 并展示结果：签到只在 CI 跑（单执行端），
 // 避免本地/CI 共用单次轮换票互踢。依赖 gh CLI 已登录（gh auth login）。
@@ -171,8 +175,23 @@ async function main(): Promise<void> {
   const finished = await waitForRun(run);
   const logs = filterResultLogs(await gh(['run', 'view', String(run.databaseId), '--log']));
   for (const line of logs) console.log(line);
+  await saveLastRun(run.databaseId);
   console.log(`[CI] 运行结束：${finished.conclusion ?? 'unknown'} ${finished.url ?? ''}`.trim());
   process.exitCode = exitCodeFor(finished.conclusion);
+}
+
+// 下载 CI 产物并写入本地结构化结果，桌面端据此在卡片展示余额；失败不影响退出码
+async function saveLastRun(runId: number): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'aipunch-result-'));
+  try {
+    await gh(['run', 'download', String(runId), '-n', 'checkin-result', '-D', dir]);
+    const data = JSON.parse(readFileSync(join(dir, 'checkin-result.json'), 'utf8')) as ResultFile;
+    writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify(data, null, 1));
+  } catch {
+    /* artifact 缺失（旧运行/上传失败）时跳过 */
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // 仅直接执行时运行；被测试 import 时不能触发真实 CI

@@ -1,9 +1,11 @@
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCheckins } from '../core/executor.ts';
 import { loadConfig, resolveAccounts } from '../core/config.ts';
 import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
 import { fetchWithTimeout } from '../core/http.ts';
 import { installDnsFallback } from '../core/dns-fallback.ts';
+import { toResultFile } from '../core/result.ts';
 import { persistRotatedTokens, rotationNotices } from '../core/token-rotation.ts';
 import '../providers/index.ts';
 
@@ -90,6 +92,12 @@ async function main(): Promise<void> {
         console.log(`\n${notice.name} 已轮换，.env 写回失败，请手动更新：\n${notice.token}`);
       }
     }
+  }
+
+  // CI 结构化回传：workflow 上传为 artifact，桌面端 ci-checkin 下载后写本地结果文件
+  const resultFile = process.env.CHECKIN_RESULT_FILE;
+  if (resultFile) {
+    writeFileSync(resultFile, JSON.stringify(toResultFile(result), null, 1));
   }
 
   if (result.succeeded < result.total) {

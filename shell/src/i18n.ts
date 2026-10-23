@@ -33,6 +33,7 @@ export const translations = {
     sectionProvidersSub: "独立开关控制与单平台即时签到调试",
 
     cardReady: "已就绪",
+    cardBalance: "余额",
     cardLinked: "已连接",
     cardUnset: "未配置凭证",
     cardAuthBtn: "一键授权向导",
@@ -161,6 +162,7 @@ export const translations = {
     sectionProvidersSub: "Per-account toggle and instant single-provider check-in",
 
     cardReady: "Ready",
+    cardBalance: "Balance",
     cardLinked: "Linked",
     cardUnset: "Unconfigured",
     cardAuthBtn: "1-Click Auth",
