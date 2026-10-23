@@ -213,14 +213,14 @@ export const trae: Provider = {
     }
     const code = body.code ?? 0;
     const message = body.message ?? '';
+    // 余额与签到结果独立：失败分支也查，便于排查与桌面端展示
+    const usage = await queryUsage(jwt, deviceId, ctx);
 
     if (code === 0) {
       const credits = typeof body.credits === 'number' ? `：积分 ${body.credits}` : '';
-      const usage = await queryUsage(jwt, deviceId, ctx);
       return { ok: true, message: `签到成功${credits}${usageText(usage)}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (code === 9095 || ALREADY_HINTS.test(message)) {
-      const usage = await queryUsage(jwt, deviceId, ctx);
       return { ok: true, message: `今日已领取（服务端幂等跳过）${usageText(usage)}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (code === 9074 || res.status === 429 || res.status >= 500 || CONGESTION_HINTS.test(message)) {
@@ -228,10 +228,10 @@ export const trae: Provider = {
       return {
         ok: false,
         message: `触发限流/设备校验（code=${code}）：积分未到账，下轮重试。需带齐 TRAE_DEVICE_ID / TRAE_MACHINE_ID / TRAE_USER_ID`,
-        detail: { status: res.status, body, rotatedRefreshToken },
+        detail: { status: res.status, body, usage, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
-    return { ok: false, message: `签到失败: code=${code} ${message}`, detail: { status: res.status, body, rotatedRefreshToken }, rotatedRefreshToken };
+    return { ok: false, message: `签到失败: code=${code} ${message}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
   },
 };
