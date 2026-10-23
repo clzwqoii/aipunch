@@ -153,9 +153,9 @@ async function queryUsage(token: string, ctx: RunContext): Promise<UsageResult> 
   try {
     const res = await ctx.fetch(`${BASE}/sash/api/v2/me/usage`, { headers: campaignHeaders(token) });
     const text = await res.text();
-    if (!res.ok) return { usage: null, error: `HTTP ${res.status} ${text.slice(0, 160)}` };
+    if (!res.ok) return { usage: null, error: `HTTP ${res.status} ${text.slice(0, 4000)}` };
     const usage = parseQoderUsage(JSON.parse(text));
-    return usage ? { usage } : { usage: null, error: `unparsed ${text.slice(0, 160)}` };
+    return usage ? { usage } : { usage: null, error: `unparsed ${text.slice(0, 4000)}` };
   } catch (err) {
     return { usage: null, error: (err as Error).message };
   }
