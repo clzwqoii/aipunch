@@ -175,7 +175,10 @@ async function main(): Promise<void> {
   process.exitCode = exitCodeFor(finished.conclusion);
 }
 
-main().catch((err: unknown) => {
-  console.error(`[CI] ${(err as Error).message}`);
-  process.exitCode = 1;
-});
+// 仅直接执行时运行；被测试 import 时不能触发真实 CI
+if (process.argv[1]?.endsWith('ci-checkin.ts')) {
+  main().catch((err: unknown) => {
+    console.error(`[CI] ${(err as Error).message}`);
+    process.exitCode = 1;
+  });
+}
