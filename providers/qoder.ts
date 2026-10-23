@@ -144,13 +144,20 @@ export function parseQoderUsage(body: unknown): QoderUsage | null {
   return { limit: round2(limit), used: round2(used), remain: round2(remain) };
 }
 
-async function queryUsage(token: string, ctx: RunContext): Promise<QoderUsage | null> {
+interface UsageResult {
+  usage: QoderUsage | null;
+  error?: string; // 仅进 detail，便于排查（不改变签到判定）
+}
+
+async function queryUsage(token: string, ctx: RunContext): Promise<UsageResult> {
   try {
     const res = await ctx.fetch(`${BASE}/sash/api/v2/me/usage`, { headers: campaignHeaders(token) });
-    if (!res.ok) return null;
-    return parseQoderUsage(await res.json());
-  } catch {
-    return null; // 余额查询失败不影响签到判定
+    const text = await res.text();
+    if (!res.ok) return { usage: null, error: `HTTP ${res.status} ${text.slice(0, 160)}` };
+    const usage = parseQoderUsage(JSON.parse(text));
+    return usage ? { usage } : { usage: null, error: `unparsed ${text.slice(0, 160)}` };
+  } catch (err) {
+    return { usage: null, error: (err as Error).message };
   }
 }
 
@@ -173,7 +180,8 @@ export const qoder: Provider = {
       return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
     }
 
-    const usage = await queryUsage(accessToken, ctx);
+    const usageResult = await queryUsage(accessToken, ctx);
+    const usage = usageResult.usage;
     const usageSuffix = usage ? `；剩余 ${usage.remain}/${usage.limit}` : '';
     const res = await ctx.fetch(`${BASE}/sash/api/v1/me/campaigns`, {
       headers: campaignHeaders(accessToken),
@@ -193,7 +201,7 @@ export const qoder: Provider = {
       return {
         ok: true,
         message: `${alreadyClaimed ? '今日已领取（服务端幂等跳过）' : '暂无可领取的签到活动（未开放或已结束）'}${usageSuffix}`,
-        detail: { status: res.status, campaigns, usage, rotatedRefreshToken },
+        detail: { status: res.status, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
@@ -226,7 +234,7 @@ export const qoder: Provider = {
       return {
         ok: false,
         message: `领取失败 ${errors.length}/${claimable.length}: ${errors.join('; ')}`,
-        detail: { status: res.status, campaigns, usage, rotatedRefreshToken },
+        detail: { status: res.status, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
@@ -234,7 +242,7 @@ export const qoder: Provider = {
       return {
         ok: true,
         message: `今日已领取（服务端幂等回放）${usageSuffix}`,
-        detail: { status: res.status, claimed: claimable.length, campaigns, usage, rotatedRefreshToken },
+        detail: { status: res.status, claimed: claimable.length, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
@@ -242,7 +250,7 @@ export const qoder: Provider = {
     return {
       ok: true,
       message: `签到成功：${amountText}${usageSuffix}`,
-      detail: { status: res.status, claimed: claimable.length, campaigns, usage, rotatedRefreshToken },
+      detail: { status: res.status, claimed: claimable.length, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
       rotatedRefreshToken,
     };
   },
