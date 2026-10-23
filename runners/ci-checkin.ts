@@ -177,18 +177,18 @@ async function main(): Promise<void> {
   const finished = await waitForRun(run);
   const logs = filterResultLogs(await gh(['run', 'view', String(run.databaseId), '--log']));
   for (const line of logs) console.log(line);
-  await saveLastRun(run.databaseId);
+  await saveLastRun(run.databaseId, run.url);
   console.log(`[CI] 运行结束：${finished.conclusion ?? 'unknown'} ${finished.url ?? ''}`.trim());
   process.exitCode = exitCodeFor(finished.conclusion);
 }
 
 // 下载 CI 产物并写入本地结构化结果，桌面端据此在卡片展示余额；失败不影响退出码
-async function saveLastRun(runId: number): Promise<void> {
+async function saveLastRun(runId: number, runUrl: string | undefined): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'aipunch-result-'));
   try {
     await gh(['run', 'download', String(runId), '-n', 'checkin-result', '-D', dir]);
     const data = JSON.parse(readFileSync(join(dir, 'checkin-result.json'), 'utf8')) as ResultFile;
-    writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify(data, null, 1));
+    writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify({ ...data, runUrl }, null, 1));
   } catch {
     /* artifact 缺失（旧运行/上传失败）时跳过 */
   } finally {

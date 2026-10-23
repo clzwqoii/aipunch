@@ -643,6 +643,10 @@ html[data-theme="light"] .badge-active {
   padding-right: 6px;
 }
 
+.progress-ring-container.clickable {
+  cursor: pointer;
+}
+
 .progress-ring-container {
   position: relative;
   width: 88px;

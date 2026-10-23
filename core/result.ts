@@ -17,6 +17,7 @@ export interface ResultEntry {
 
 export interface ResultFile {
   finishedAt: string;
+  runUrl?: string; // ci-checkin 补写，桌面端点击状态环可跳转
   total: number;
   succeeded: number;
   results: ResultEntry[];

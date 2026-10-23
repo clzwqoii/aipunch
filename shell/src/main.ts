@@ -382,6 +382,11 @@ async function setupEventListeners() {
     runCheckinAll();
   });
 
+  document.getElementById("ci-status-ring")?.addEventListener("click", () => {
+    const url = lastRun?.runUrl;
+    if (url && /^https:\/\//.test(url)) void invoke("open_external", { target: url });
+  });
+
   setupCredentialButtons();
 }
 
@@ -399,13 +404,18 @@ interface LastRunEntry {
 }
 
 let lastRunEntries: LastRunEntry[] = [];
+let lastRun: { succeeded?: number; total?: number; finishedAt?: string; runUrl?: string } | null = null;
 
 // 结构化结果由 ci-checkin 从 CI artifact 写入，卡片余额只读这份数据
 async function loadLastRun(): Promise<void> {
   try {
-    const data = await invoke<{ results?: LastRunEntry[] } | null>("get_last_run");
+    const data = await invoke<{ results?: LastRunEntry[]; succeeded?: number; total?: number; finishedAt?: string; runUrl?: string } | null>(
+      "get_last_run",
+    );
+    lastRun = data ?? null;
     lastRunEntries = Array.isArray(data?.results) ? data.results : [];
   } catch {
+    lastRun = null;
     lastRunEntries = [];
   }
   applyBalances();
@@ -436,18 +446,18 @@ function applyBalances(): void {
 
 function renderTotalBalance(): void {
   const el = document.getElementById("total-claimed-pts");
-  if (!el) return;
-  const balances = lastRunEntries.map((r) => r.balance).filter((b): b is LastRunBalance => !!b);
-  if (balances.length === 0) {
+  const ring = document.getElementById("ci-status-ring");
+  if (!el || !ring) return;
+  if (!lastRun || typeof lastRun.succeeded !== "number" || typeof lastRun.total !== "number") {
     el.textContent = "—";
+    ring.title = "最近 CI 运行状态";
+    ring.classList.remove("clickable");
     return;
   }
-  if (balances.some((b) => b.unlimited)) {
-    el.textContent = "∞";
-    return;
-  }
-  const total = balances.reduce((sum, b) => sum + b.remain, 0);
-  el.textContent = total.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+  el.textContent = `${lastRun.succeeded}/${lastRun.total}`;
+  const when = lastRun.finishedAt ? new Date(lastRun.finishedAt).toLocaleString("zh-CN") : "";
+  ring.title = `最近 CI 运行：${lastRun.succeeded}/${lastRun.total}${when ? ` · ${when}` : ""}`;
+  ring.classList.toggle("clickable", !!lastRun.runUrl);
 }
 
 async function loadConfigAndState() {
