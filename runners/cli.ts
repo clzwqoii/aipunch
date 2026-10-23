@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     if (verbose) {
       const detailJson = JSON.stringify(r.detail ?? null);
       // ponytail: 原始响应可能很大（几十个套餐包），截断到 2000 字符，完整结构看代码里的字段
-      console.log(`  detail: ${detailJson.length > 2000 ? `${detailJson.slice(0, 2000)}…(truncated)` : detailJson}`);
+      console.log(`  detail: ${detailJson.length > 30000 ? `${detailJson.slice(0, 30000)}…(truncated)` : detailJson}`);
     }
   });
   console.log(`完成: ${result.succeeded}/${result.total} 成功`);
