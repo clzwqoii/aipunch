@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trae } from './trae.ts';
+import { trae, parseTraeUsage } from './trae.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'trae', name: 'main', token: '', refreshToken: 'tr-1' };
@@ -13,6 +13,7 @@ function ctxWith(fetchImpl: typeof fetch): RunContext {
 function mockTrae(handlers: {
   exchange?: () => Response;
   claim?: () => Response;
+  usage?: () => Response;
   onCall?: (url: string, init?: RequestInit) => void;
 }): typeof fetch {
   return (async (url: string | URL | Request, init?: RequestInit) => {
@@ -20,6 +21,7 @@ function mockTrae(handlers: {
     handlers.onCall?.(u, init);
     if (u.includes('/oauth/ExchangeToken')) return handlers.exchange!();
     if (u.includes('/checkin_credits/claim')) return handlers.claim!();
+    if (u.includes('/pay/ide_user_ent_usage')) return handlers.usage?.() ?? new Response('{}', { status: 500 });
     throw new Error(`unexpected url: ${u}`);
   }) as typeof fetch;
 }
@@ -191,4 +193,56 @@ test('无 TRAE_DEVICE_ID 时请求不带 x-device-id 头', async () => {
   } finally {
     if (prev !== undefined) process.env.TRAE_DEVICE_ID = prev;
   }
+});
+
+test('parseTraeUsage 汇总套餐额度与已用积分', () => {
+  const usage = parseTraeUsage({
+    user_entitlement_pack_list: [
+      { entitlement_base_info: { quota: { credits_limit: 1000 }, end_time: 1790000000000 }, usage: { credits_amount: 250 } },
+      { entitlement_base_info: { quota: { credits_limit: 500 } }, usage: { credits_amount: 500 } },
+    ],
+  });
+  assert.deepEqual(usage, { limit: 1500, used: 750, remain: 750, unlimited: false });
+});
+
+test('parseTraeUsage 识别无限额度与空套餐', () => {
+  assert.equal(
+    parseTraeUsage({ user_entitlement_pack_list: [{ entitlement_base_info: { quota: { credits_limit: -1 } } }] })?.unlimited,
+    true,
+  );
+  assert.equal(parseTraeUsage({ user_entitlement_pack_list: [] }), null);
+});
+
+test('签到成功后附带剩余积分（usage 查询失败不影响签到判定）', async () => {
+  await withDeviceEnv(async () => {
+    const ctx = ctxWith(
+      mockTrae({
+        exchange: EXCHANGE_OK,
+        claim: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        usage: () =>
+          new Response(
+            JSON.stringify({
+              user_entitlement_pack_list: [
+                { entitlement_base_info: { quota: { credits_limit: 1000 } }, usage: { credits_amount: 250 } },
+              ],
+            }),
+            { status: 200 },
+          ),
+      }),
+    );
+    const result = await trae.checkin(account, ctx);
+    assert.equal(result.ok, true);
+    assert.match(result.message, /剩余 750\/1000/);
+
+    const broken = ctxWith(
+      mockTrae({
+        exchange: EXCHANGE_OK,
+        claim: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        usage: () => new Response('boom', { status: 500 }),
+      }),
+    );
+    const stillOk = await trae.checkin(account, broken);
+    assert.equal(stillOk.ok, true);
+    assert.doesNotMatch(stillOk.message, /剩余/);
+  });
 });

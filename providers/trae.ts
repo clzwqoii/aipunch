@@ -18,6 +18,8 @@ import type { Account, CheckinResult, Provider, RunContext } from '../core/types
 // 补齐 magpie 同款 IDE 头后同一设备号签到成功；设备绑定接口（DeviceProof）不必要。
 const EXCHANGE_URL = 'https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken';
 const CLAIM_URL = 'https://api.trae.cn/trae/api/v2/ug/checkin_credits/claim';
+// 账户积分额度（magpie 实测端点）：user_entitlement_pack_list 里 limit 求和、usage 累加
+const USAGE_URL = 'https://api.trae.cn/trae/api/v2/pay/ide_user_ent_usage';
 const CLIENT_ID = process.env.TRAE_CLIENT_ID ?? 'ono9krqynydwx5';
 const REQ_SOURCE = Number(process.env.TRAE_REQ_SOURCE ?? '2');
 const APP_VERSION = process.env.TRAE_APPVERSION ?? '0.1.43';
@@ -110,6 +112,57 @@ function claimHeaders(jwt: string, deviceId: string): Record<string, string> {
   };
 }
 
+export interface TraeUsage {
+  limit: number;
+  used: number;
+  remain: number;
+  unlimited: boolean;
+}
+
+export function parseTraeUsage(body: unknown): TraeUsage | null {
+  const root = (body ?? {}) as Record<string, unknown>;
+  const inner = (root.Result ?? root.data ?? root) as Record<string, unknown>;
+  const packs = (inner.user_entitlement_pack_list ?? (inner.data as Record<string, unknown> | undefined)?.user_entitlement_pack_list) as
+    | Array<Record<string, unknown>>
+    | undefined;
+  if (!Array.isArray(packs)) return null;
+  let limit = 0;
+  let used = 0;
+  let unlimited = false;
+  for (const pack of packs) {
+    const quota = (pack?.entitlement_base_info as Record<string, unknown> | undefined)?.quota as
+      | Record<string, unknown>
+      | undefined;
+    const packLimit = Number(quota?.credits_limit);
+    if (!Number.isFinite(packLimit)) continue;
+    if (packLimit === -1) unlimited = true;
+    else if (packLimit > 0) limit += packLimit;
+    const packUsed = Number((pack?.usage as Record<string, unknown> | undefined)?.credits_amount) || 0;
+    if (packUsed > 0) used += packUsed;
+  }
+  if (!unlimited && limit === 0) return null;
+  return { limit, used, remain: unlimited ? 0 : Math.max(0, limit - used), unlimited };
+}
+
+async function queryUsage(jwt: string, deviceId: string, ctx: RunContext): Promise<TraeUsage | null> {
+  try {
+    const res = await ctx.fetch(USAGE_URL, {
+      method: 'POST',
+      headers: claimHeaders(jwt, deviceId),
+      body: JSON.stringify({ require_usage: true, req_source: 0 }),
+    });
+    if (!res.ok) return null;
+    return parseTraeUsage(await res.json());
+  } catch {
+    return null; // 余额查询失败不影响签到判定
+  }
+}
+
+function usageText(usage: TraeUsage | null): string {
+  if (!usage) return '';
+  return usage.unlimited ? '；积分不限' : `；剩余 ${usage.remain}/${usage.limit}`;
+}
+
 export const trae: Provider = {
   id: 'trae',
   name: 'Trae',
@@ -163,10 +216,12 @@ export const trae: Provider = {
 
     if (code === 0) {
       const credits = typeof body.credits === 'number' ? `：积分 ${body.credits}` : '';
-      return { ok: true, message: `签到成功${credits}`, detail: { status: res.status, body, rotatedRefreshToken }, rotatedRefreshToken };
+      const usage = await queryUsage(jwt, deviceId, ctx);
+      return { ok: true, message: `签到成功${credits}${usageText(usage)}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (code === 9095 || ALREADY_HINTS.test(message)) {
-      return { ok: true, message: '今日已领取（服务端幂等跳过）', detail: { status: res.status, body, rotatedRefreshToken }, rotatedRefreshToken };
+      const usage = await queryUsage(jwt, deviceId, ctx);
+      return { ok: true, message: `今日已领取（服务端幂等跳过）${usageText(usage)}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (code === 9074 || res.status === 429 || res.status >= 500 || CONGESTION_HINTS.test(message)) {
       // 9074 真因是设备指纹不完整（缺 machine-id/uid/app-id 等头），且积分未到账——判失败下轮重试
