@@ -104,9 +104,13 @@ export async function dohResolve(hostname: string, family?: number): Promise<Loo
   return list;
 }
 
+let installed = false;
+
 export function installDnsFallback(): boolean {
+  if (installed) return false;
   if (process.env.CHECKIN_DNS_DOH === '0') return false;
   const original = dns.lookup.bind(dns) as unknown as PrimaryLookup;
   dns.lookup = createDohLookup(original, dohResolve) as unknown as typeof dns.lookup;
+  installed = true;
   return true;
 }

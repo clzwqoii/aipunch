@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { exchangePat } from '../providers/qoder.ts';
 import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
+import { installDnsFallback } from '../core/dns-fallback.ts';
 
 // PAT 冷启动（Qoder CN 官方文档路径，macOS / Linux / CI 通用）：
 // 控制台 → 设置 → API 令牌创建 PAT（pt- 前缀，仅显示一次）→ 兑换 jrt- 刷新令牌写 .env。
@@ -15,6 +16,7 @@ function mask(value: string): string {
 
 async function main(): Promise<void> {
   loadDotEnv(); // 支持 QODER_PAT 写在 .env（gitignored）——比命令行参数不易泄露
+  installDnsFallback();
   const args = process.argv.slice(2);
   const patFlag = args.indexOf('--pat');
   const pat = (patFlag >= 0 ? args[patFlag + 1] : undefined) ?? process.env.QODER_PAT ?? '';

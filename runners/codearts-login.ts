@@ -11,6 +11,7 @@ import {
   redirectUri,
 } from '../core/codearts-auth.ts';
 import { setEnvValue } from '../core/dotenv.ts';
+import { installDnsFallback } from '../core/dns-fallback.ts';
 
 // 码道登录（OAuth PKCE + DPoP，浏览器授权）：与 `npm run login`（WorkBuddy）同用途。
 // 流程：本地回调服务器（ ephemeral 端口）→ 打开门户授权页 → 用户登录后回调带 code
@@ -59,6 +60,7 @@ async function exchangeCode(
 }
 
 async function main(): Promise<void> {
+  installDnsFallback();
   const [codeVerifier, codeChallenge] = pkcePair();
   const { ticketId, secret } = newTicketIdentity();
   const dpopKey = newDpopKeyPair();
