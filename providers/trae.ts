@@ -141,7 +141,13 @@ export function parseTraeUsage(body: unknown): TraeUsage | null {
     if (packUsed > 0) used += packUsed;
   }
   if (!unlimited && limit === 0) return null;
-  return { limit, used, remain: unlimited ? 0 : Math.max(0, limit - used), unlimited };
+  const round = (n: number): number => Math.round(n * 100) / 100;
+  return {
+    limit: round(limit),
+    used: round(used),
+    remain: unlimited ? 0 : round(Math.max(0, limit - used)),
+    unlimited,
+  };
 }
 
 async function queryUsage(jwt: string, deviceId: string, ctx: RunContext): Promise<TraeUsage | null> {

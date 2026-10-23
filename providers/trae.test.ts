@@ -246,3 +246,12 @@ test('签到成功后附带剩余积分（usage 查询失败不影响签到判�
     assert.doesNotMatch(stillOk.message, /剩余/);
   });
 });
+
+test('parseTraeUsage 小数用量四舍五入到两位', () => {
+  const usage = parseTraeUsage({
+    user_entitlement_pack_list: [
+      { entitlement_base_info: { quota: { credits_limit: 2200 } }, usage: { credits_amount: 446.9752 } },
+    ],
+  });
+  assert.deepEqual(usage, { limit: 2200, used: 446.98, remain: 1753.02, unlimited: false });
+});
