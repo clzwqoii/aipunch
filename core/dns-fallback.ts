@@ -52,6 +52,11 @@ export function createDohLookup(primary: PrimaryLookup, dohResolve: DohResolve):
     );
 
     void (async () => {
+      const respond = (list: LookupAddress[]): void => {
+        if (wantAll) callback(null, list);
+        else callback(null, list[0].address, list[0].family);
+      };
+      // DoH 先到立即返回，不等挂起的系统 resolver（否则每条请求都要陪它超时）
       const winner = await new Promise<LookupAddress[] | null>((resolve) => {
         void primaryResult.then(({ list }) => {
           const ok = usable(list);
@@ -63,17 +68,17 @@ export function createDohLookup(primary: PrimaryLookup, dohResolve: DohResolve):
         });
         void Promise.all([primaryResult, dohResult]).then(() => resolve(null));
       });
+      if (winner) {
+        respond(winner);
+        return;
+      }
       const [p, d] = await Promise.all([primaryResult, dohResult]);
-      const list = winner ?? (p.list.length > 0 ? p.list : d.list);
+      const list = p.list.length > 0 ? p.list : d.list;
       if (list.length === 0) {
         callback(lookupError(hostname, p.err));
         return;
       }
-      if (wantAll) {
-        callback(null, list);
-      } else {
-        callback(null, list[0].address, list[0].family);
-      }
+      respond(list);
     })();
   }) as unknown as typeof dns.lookup;
 }

@@ -78,6 +78,19 @@ test('两边都失败时回调 ENOTFOUND', async () => {
   assert.equal(r.err?.code, 'ENOTFOUND');
 });
 
+test('系统 DNS 挂起时 DoH 先到就先回调，不等待挂起的一路', async () => {
+  const lookup = lookupOnce(
+    () => {
+      /* 永不回调：模拟死掉的 resolver */
+    },
+    async () => real,
+  );
+  const started = Date.now();
+  const r = await lookup('www.workbuddy.cn');
+  assert.equal(r.address, '43.159.104.94');
+  assert.ok(Date.now() - started < 1000, 'DoH 结果应立即返回');
+});
+
 test('options.all 时返回地址数组', async () => {
   const lookup = lookupOnce(
     (_h, _o, cb) => cb(null, fake[0].address, 4),
