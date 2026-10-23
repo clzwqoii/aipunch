@@ -51,8 +51,10 @@ export async function checkGh(run: (args: string[]) => Promise<string>): Promise
   }
   try {
     await run(['auth', 'status']);
-  } catch {
-    throw new Error('gh 未登录：运行 gh auth login 后重试');
+  } catch (err) {
+    // 网络抖动时 gh auth status 也会非零退出，带上原因而不是一口咬定未登录
+    const reason = (err as Error).message.replace(/^gh auth status 失败:\s*/, '').slice(0, 120);
+    throw new Error(`gh 未登录或校验失败（${reason}）：运行 gh auth login 后重试`);
   }
   try {
     const repo = JSON.parse(await run(['repo', 'view', '--json', 'nameWithOwner'])) as { nameWithOwner: string };
