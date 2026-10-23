@@ -343,13 +343,16 @@ function appendTerminalLog(line: string) {
   const lineEl = document.createElement("div");
   lineEl.className = "log-line";
 
-  if (line.includes("200 OK") || line.includes("✔") || line.includes("[DONE]")) {
+  // 签到结果按状态着色：此前只有含 "Token" 的行碰巧变蓝，其他结果全是默认色
+  if (line.includes("[OK]") || line.includes("[DONE]") || line.includes("200 OK") || line.includes("✔") || line.includes("[CI] 运行结束：success")) {
     lineEl.classList.add("success");
-  } else if (line.includes("ERROR") || line.includes("Failed") || line.includes("code: 1")) {
+  } else if (line.includes("[FAIL]") || line.includes("ERROR") || line.includes("Failed") || line.includes("::error::")) {
     lineEl.classList.add("error");
-  } else if (line.includes("WARN") || line.includes("Skip")) {
+  } else if (line.includes("[CI]")) {
+    lineEl.classList.add("info");
+  } else if (line.includes("WARN") || line.includes("Skip") || line.includes("已轮换")) {
     lineEl.classList.add("warn");
-  } else if (line.startsWith("[START]") || line.includes("Token")) {
+  } else if (line.startsWith("[START]") || line.startsWith("[RUNNER]")) {
     lineEl.classList.add("info");
   }
 

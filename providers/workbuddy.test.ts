@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { workbuddy, sendSmsCode, loginWithSms } from './workbuddy.ts';
+import { queryBalance } from './workbuddy-tasks.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'workbuddy', name: 'main', token: 'tk' };
@@ -231,4 +232,36 @@ test('连登管家兑换与抽奖结果进入签到消息', async () => {
   const result = await workbuddy.checkin(account, ctx);
   assert.match(result.message, /连登管家: 兑换7d\/14d\/28d/);
   assert.match(result.message, /抽奖x2/);
+});
+
+test('余额按当前周期口径：未启用的套餐容量不计入（与站点一致）', async () => {
+  const fake = (async () =>
+    new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          Response: {
+            Data: {
+              Accounts: [
+                { Status: 0, CycleCapacityRemain: 316, CycleCapacitySize: 500, CapacityRemain: 316, CapacitySize: 500 },
+                { Status: 0, CycleCapacityRemain: 0, CycleCapacitySize: 500, CapacityRemain: 500, CapacitySize: 500 },
+              ],
+            },
+          },
+        },
+      }),
+      { status: 200 },
+    )) as unknown as typeof fetch;
+  const r = await queryBalance('tk', ctxWith(fake));
+  assert.equal(r.balance?.remain, 316);
+});
+
+test('缺少周期字段时回落到 Capacity 字段', async () => {
+  const fake = (async () =>
+    new Response(
+      JSON.stringify({ code: 0, data: { Response: { Data: { Accounts: [{ Status: 0, CapacityRemain: 700, CapacitySize: 1000 }] } } } }),
+      { status: 200 },
+    )) as unknown as typeof fetch;
+  const r = await queryBalance('tk', ctxWith(fake));
+  assert.equal(r.balance?.remain, 700);
 });

@@ -94,8 +94,15 @@ export async function queryBalance(accessToken: string, ctx: RunContext): Promis
   let remain = 0;
   let total = 0;
   for (const account of active) {
-    const accountRemain = pickNum(account, 'CapacityRemain', 'capacityRemain', 'CycleCapacityRemain', 'cycleCapacityRemain');
-    const accountTotal = pickNum(account, 'CapacitySize', 'capacitySize', 'CycleCapacitySize', 'cycleCapacitySize');
+    // 站点「积分余额」= 当前周期可用积分：CapacityRemain 会把未启用的套餐（cycle 为 0）算进去，
+    // 曾导致 1677 vs 站点 1177 的偏差；有周期字段时以周期为准，缺字段才回落总容量
+    const hasCycle = 'CycleCapacityRemain' in account || 'cycleCapacityRemain' in account;
+    const accountRemain = hasCycle
+      ? pickNum(account, 'CycleCapacityRemain', 'cycleCapacityRemain')
+      : pickNum(account, 'CapacityRemain', 'capacityRemain');
+    const accountTotal = hasCycle
+      ? pickNum(account, 'CycleCapacitySize', 'cycleCapacitySize')
+      : pickNum(account, 'CapacitySize', 'capacitySize');
     remain += Math.max(0, Math.min(accountRemain, accountTotal));
     total += accountTotal;
   }

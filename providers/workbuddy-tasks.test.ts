@@ -42,7 +42,7 @@ test('queryBalance 兼容 PascalCase 字段名（Accounts/CycleCapacityRemain）
   assert.deepEqual((await queryBalance(TOKEN, ctx)).balance, { remain: 800, total: 1000 });
 });
 
-test('queryBalance 解析真实嵌套 data.Response.Data.Accounts，只统计 Status=0，Capacity 优先于 Cycle', async () => {
+test('queryBalance 解析真实嵌套 data.Response.Data.Accounts，只统计 Status=0，余额按周期口径', async () => {
   const ctx = ctxWith((async () =>
     new Response(
       JSON.stringify({
@@ -70,7 +70,8 @@ test('queryBalance 解析真实嵌套 data.Response.Data.Accounts，只统计 St
       }),
       { status: 200 },
     )) as typeof fetch);
-  assert.deepEqual((await queryBalance(TOKEN, ctx)).balance, { remain: 600, total: 600 });
+  // 个人体验版 cycle 余量为 0（未启用/未循环），站点不计入；只算签到包的 100
+  assert.deepEqual((await queryBalance(TOKEN, ctx)).balance, { remain: 100, total: 600 });
 });
 
 test('queryBalance remain 超出 size 时钳制到 size', async () => {
