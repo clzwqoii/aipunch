@@ -14,6 +14,7 @@
     "autoclaw-intl-login": "tsx runners/autoclaw-intl-login.ts",
     "codearts-login": "tsx runners/codearts-login.ts",
     "checkin": "tsx runners/cli.ts",
+    "ci-checkin": "tsx runners/ci-checkin.ts",
     "dry-run": "tsx runners/cli.ts --dry-run",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test core/*.test.ts providers/*.test.ts runners/*.test.ts",

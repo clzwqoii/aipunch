@@ -490,8 +490,8 @@ function renderProviderCards() {
       const provider = btn.dataset.provider;
       const name = btn.dataset.name;
       if (!provider || !name) return;
-      appendTerminalLog(`[ACTION] Triggering check-in for ${provider}/${name}...`);
-      void startRunner("checkin", ["--provider", provider, "--account", name]);
+      appendTerminalLog(`[ACTION] 触发 CI 签到：${provider}/${name}...`);
+      void startRunner("ci-checkin", ["--provider", provider, "--account", name]);
     });
   });
 
@@ -551,7 +551,8 @@ async function startRunner(
 }
 
 function runCheckinAll() {
-  void startRunner("checkin", []);
+  // 签到统一在 CI 执行（单执行端，避免本地与 CI 轮换票互踢）
+  void startRunner("ci-checkin", []);
 }
 
 // 8. 隐私开关

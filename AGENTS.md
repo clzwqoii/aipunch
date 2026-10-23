@@ -64,6 +64,7 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 - 句柄被覆盖 = 进程失控：Rust `Child` 被 drop 不会杀进程。登记前必须确认没有活着的旧句柄，否则「停止」只杀得到最后一个，其余进程继续跑并发 `script-finished`，把前端 `isRunning` 提前复位。
 - 前端 `isRunning`、按钮禁用属于 UX 兜底，不能当作后端正确性的前提。
 - 这类状态改动按 TDD 补一条能失败的测试；确实无法构造（如需 Tauri `AppHandle`）时，在代码旁注释写明原因与手测路径（例：连点两次「一键签到全部」应得到「已有任务在运行」，再点「停止」应能结束且无残留进程）。
+- **签到执行端唯一**：桌面端「一键签到」走 `npm run ci-checkin` 触发 workflow（`workflow_dispatch` + `concurrency: checkin`），本地不直接跑 `npm run checkin`。凭证是单次轮换票，CI 与本地、或两次运行并发，都会互相作废。
 
 ## 安全边界
 

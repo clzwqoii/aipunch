@@ -7,7 +7,21 @@ on:
     # 自定义执行时间：改下面这一行，例如北京时间 09:30 → '30 1 * * *'
     - cron: '0 3 * * *'
     # 注意：GitHub 对 60 天无活动的仓库会停用定时工作流，偶尔手动触发一次即可保活
-  workflow_dispatch: # 手动触发：Actions 页面 → Run workflow
+  workflow_dispatch: # 手动触发：Actions 页面 → Run workflow；桌面端「一键签到」走这里
+    inputs:
+      provider:
+        description: '只跑指定 Provider（可选，如 trae）'
+        required: false
+        default: ''
+      account:
+        description: '只跑指定账号名（可选，如 main）'
+        required: false
+        default: ''
+
+# 凭证是单次轮换票：定时与手动（桌面端）必须串行，避免两轮并发互相作废
+concurrency:
+  group: checkin
+  cancel-in-progress: false
 
 jobs:
   checkin:
@@ -35,12 +49,18 @@ jobs:
           TRAE_USER_ID: ${{ secrets.TRAE_USER_ID }}
           # 可选：对仓库有管理员权限的 PAT，用于自动回写轮换后的 Secret
           GH_PAT: ${{ secrets.GH_PAT }}
+          # 桌面端单平台/单账号触发时的过滤参数（workflow_dispatch inputs）
+          CHECKIN_PROVIDER: ${{ inputs.provider }}
+          CHECKIN_ACCOUNT: ${{ inputs.account }}
         run: |
           # RUNNER_TEMP 是 runner 上下文变量，只能通过 shell 环境变量使用（不能放进 env:）
           export CHECKIN_ROTATED_TOKEN_FILE="$RUNNER_TEMP/rotated-tokens.txt"
           # 任一账号失败时 npm 退出 1；bash -e 会在此中止，轮换值必须无条件回写，
           # 否则成功账号的新 token 丢失，下轮用旧值必然失败（Qoder 10-21 即如此）
-          npm run checkin || status=$?
+          args=()
+          if [ -n "$CHECKIN_PROVIDER" ]; then args+=(--provider "$CHECKIN_PROVIDER"); fi
+          if [ -n "$CHECKIN_ACCOUNT" ]; then args+=(--account "$CHECKIN_ACCOUNT"); fi
+          npm run checkin -- "${args[@]}" || status=$?
           if [ -s "$CHECKIN_ROTATED_TOKEN_FILE" ]; then
             if [ -n "$GH_PAT" ]; then
               echo "检测到 refreshToken 轮换，回写 Secret"
