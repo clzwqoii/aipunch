@@ -29,14 +29,22 @@ const EXCHANGE_OK = () =>
     status: 200,
   });
 
-function withDeviceEnv<T>(fn: () => T): T {
-  const prev = process.env.TRAE_DEVICE_ID;
+async function withDeviceEnv<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = {
+    TRAE_DEVICE_ID: process.env.TRAE_DEVICE_ID,
+    TRAE_MACHINE_ID: process.env.TRAE_MACHINE_ID,
+    TRAE_USER_ID: process.env.TRAE_USER_ID,
+  };
   process.env.TRAE_DEVICE_ID = '626064396416234';
+  process.env.TRAE_MACHINE_ID = 'machine-1';
+  process.env.TRAE_USER_ID = 'uid-1';
   try {
-    return fn();
+    return await fn();
   } finally {
-    if (prev === undefined) delete process.env.TRAE_DEVICE_ID;
-    else process.env.TRAE_DEVICE_ID = prev;
+    for (const [name, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 }
 
@@ -67,6 +75,13 @@ test('refreshToken 先经 ExchangeToken 换 JWT，再 claim；请求体与请求
     assert.equal(headers.Authorization, 'Cloud-IDE-JWT jwt-1');
     assert.equal(headers['X-User-Region'], 'CN');
     assert.equal(headers['x-device-id'], '626064396416234');
+    // 9074 的真因是设备指纹不完整：machine-id / uid / app-id / 版本 / 品牌缺一不可
+    assert.equal(headers['x-machine-id'], 'machine-1');
+    assert.equal(headers['x-uid'], 'uid-1');
+    assert.equal(headers['x-app-id'], '6eefa01c-1036-4c7e-9ca5-d891f63bfcd8');
+    assert.equal(headers['x-app-version'], '0.1.69');
+    assert.equal(headers['x-ide-version-type'], 'stable');
+    assert.match(headers['x-request-id'], /^[0-9a-f-]{36}$/);
     assert.deepEqual(JSON.parse(String(claim!.init?.body)), { req_source: 2 });
     assert.equal(result.rotatedRefreshToken, 'tr-2');
   });

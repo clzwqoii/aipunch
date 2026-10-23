@@ -23,7 +23,7 @@
 |---|---|---|---|---|
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
-| Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；凭证经 `npm run trae-extract` 从本机客户端提取；真实 token 实跑确认 |
+| Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；`npm run trae-login` 浏览器授权（独立会话，与本机客户端互不影响）；`npm run trae-extract` 提取客户端登录态（备选，与客户端共享会话） |
 | AutoClaw 国际版 | [autoclaw.z.ai](https://autoclaw.z.ai) | 每日签到（任务领取） | 可用 | `daily_signin` 任务，实测 +400 积分/天；`npm run autoclaw-intl-login -- --oauth` 浏览器官方授权（阿里云滑块 + 本地回调）；真实 token 实跑确认 |
 | AutoClaw 国内版 | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 🔬 待验证 | 赠送积分由登录动作触发（用户账本实证），无常驻签到任务；Provider 每日刷新会话即登录动作，账号暂未接入 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 可用 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm）；`npm run codearts-login` 浏览器授权；DPoP 换票 + HMAC 签名链路实跑确认，领取路径待定时运行覆盖 |
@@ -54,7 +54,21 @@ npm run login
 
 > 凭证等于账号钥匙：不要发给任何人，不要提交到仓库。
 
-#### Trae（客户端登录态提取）
+#### Trae（浏览器授权，推荐）
+
+```bash
+npm run trae-login
+# 打开 www.trae.cn/authorization → 登录并允许授权 → 本地回调自动收取凭证
+# 写入 .env（TRAE_REFRESH_TOKEN / TRAE_DEVICE_ID / TRAE_MACHINE_ID / TRAE_USER_ID），终端只显示掩码
+# 放进 GitHub Secret 用 `npm run trae-login -- --print`
+```
+
+浏览器授权签发独立会话（新设备指纹：deviceId + machineId），与本机 Trae 客户端各有一条
+refreshToken 轮换链，**互不影响**：客户端随便用，CI 不会因此掉线。设备号一天限签一个账号。
+签到请求会带齐 IDE 的设备指纹头（`x-device-id`/`x-machine-id`/`x-uid`/app-id/版本/品牌）——
+缺了会被判 `9074`（2026-10-23 实跑确认的真因）。
+
+#### Trae（客户端登录态提取，备选）
 
 ```bash
 npm run trae-extract
@@ -63,7 +77,7 @@ npm run trae-extract
 # 写入 .env（TRAE_REFRESH_TOKEN / TRAE_DEVICE_ID / TRAE_USER_ID），终端只显示掩码
 ```
 
-只读、不联网、不修改客户端文件。设备号 = 客户端真实注册号（纯十进制 12–20 位），UUID 形态会被服务端拒绝（`9074`）；一个设备号一天限签一个账号。提取后按需把值同步到 GitHub Secret（`--print` 模式输出到终端自行复制）。
+只读、不联网、不修改客户端文件。设备号 = 客户端真实注册号（纯十进制 12–20 位），UUID 形态会被服务端拒绝（`9074`）；一个设备号一天限签一个账号。**注意：这条路与客户端共享同一会话**——客户端一刷新，提取出来的 refreshToken 即作废，CI 会掉线；需要与客户端共存时用上面的 `trae-login`。这条路不产出 `TRAE_MACHINE_ID`，签到仍会因设备指纹不全被判 `9074`，仅作应急兜底。
 
 #### Qoder（PAT 兑换）
 
@@ -150,7 +164,7 @@ npm run checkin   # 立即签到
 
 ### 4. 配置 GitHub Actions 自动签到
 
-1. 仓库 Settings → Secrets and variables → Actions → New repository secret，按上面各应用的凭证说明添加对应 Secret（如 `WORKBUDDY_REFRESH_TOKEN`、`TRAE_REFRESH_TOKEN` + `TRAE_DEVICE_ID` + `TRAE_USER_ID`）
+1. 仓库 Settings → Secrets and variables → Actions → New repository secret，按上面各应用的凭证说明添加对应 Secret（如 `WORKBUDDY_REFRESH_TOKEN`、`TRAE_REFRESH_TOKEN` + `TRAE_DEVICE_ID` + `TRAE_MACHINE_ID` + `TRAE_USER_ID`）
 2. push 本仓库（`config.json` 不含密钥，可直接提交）
 3. Actions 页面 → 左侧「每日签到」→ Run workflow，手动验证一次
 4. **轮换自动回写（必配）**：服务端每次刷新都会轮换 refreshToken（旧值即作废），CI 靠 `GH_PAT` 自动把新值写回对应 Secret。创建方法：

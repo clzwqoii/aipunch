@@ -31,13 +31,16 @@ jobs:
           AUTOCLAW_INTL_REFRESH_TOKEN: ${{ secrets.AUTOCLAW_INTL_REFRESH_TOKEN }}
           TRAE_REFRESH_TOKEN: ${{ secrets.TRAE_REFRESH_TOKEN }}
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
+          TRAE_MACHINE_ID: ${{ secrets.TRAE_MACHINE_ID }}
           TRAE_USER_ID: ${{ secrets.TRAE_USER_ID }}
           # 可选：对仓库有管理员权限的 PAT，用于自动回写轮换后的 Secret
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           # RUNNER_TEMP 是 runner 上下文变量，只能通过 shell 环境变量使用（不能放进 env:）
           export CHECKIN_ROTATED_TOKEN_FILE="$RUNNER_TEMP/rotated-tokens.txt"
-          npm run checkin
+          # 任一账号失败时 npm 退出 1；bash -e 会在此中止，轮换值必须无条件回写，
+          # 否则成功账号的新 token 丢失，下轮用旧值必然失败（Qoder 10-21 即如此）
+          npm run checkin || status=$?
           if [ -s "$CHECKIN_ROTATED_TOKEN_FILE" ]; then
             if [ -n "$GH_PAT" ]; then
               echo "检测到 refreshToken 轮换，回写 Secret"
@@ -46,3 +49,4 @@ jobs:
               echo "::warning::refreshToken 已轮换但未配置 GH_PAT Secret，请手动更新 WORKBUDDY_REFRESH_TOKEN"
             fi
           fi
+          exit ${status:-0}
