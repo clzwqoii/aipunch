@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { runCheckins } from '../core/executor.ts';
 import { loadConfig, resolveAccounts } from '../core/config.ts';
 import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
+import { fetchWithTimeout } from '../core/http.ts';
 import { persistRotatedTokens, rotationNotices } from '../core/token-rotation.ts';
 import '../providers/index.ts';
 
@@ -53,16 +54,16 @@ async function main(): Promise<void> {
   }
 
   const accounts = resolveAccounts(config);
-  const result = await runCheckins(accounts, { now: new Date(), fetch: globalThis.fetch });
-
-  for (const r of result.results) {
+  const timeoutMs = Number(process.env.CHECKIN_REQUEST_TIMEOUT_MS ?? '30000');
+  // 每完成一个账号立即打印：桌面壳里不必等整轮跑完才看到进度
+  const result = await runCheckins(accounts, { now: new Date(), fetch: fetchWithTimeout(timeoutMs) }, (r) => {
     console.log(`${r.ok ? '[OK]' : '[FAIL]'} ${r.provider}/${r.account}: ${r.message} (${r.durationMs}ms)`);
     if (verbose) {
       const detailJson = JSON.stringify(r.detail ?? null);
       // ponytail: 原始响应可能很大（几十个套餐包），截断到 2000 字符，完整结构看代码里的字段
       console.log(`  detail: ${detailJson.length > 2000 ? `${detailJson.slice(0, 2000)}…(truncated)` : detailJson}`);
     }
-  }
+  });
   console.log(`完成: ${result.succeeded}/${result.total} 成功`);
 
   const rotatedFile = process.env.CHECKIN_ROTATED_TOKEN_FILE;

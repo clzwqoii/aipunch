@@ -2,7 +2,11 @@ import { get } from './registry.ts';
 import type { Account, CheckinResult, RunContext, RunResult } from './types.ts';
 
 // ponytail: 顺序执行，账号量大（>20）需要时再改 Promise.all 分批
-export async function runCheckins(accounts: Account[], ctx: RunContext): Promise<RunResult> {
+export async function runCheckins(
+  accounts: Account[],
+  ctx: RunContext,
+  onResult?: (result: RunResult['results'][number]) => void,
+): Promise<RunResult> {
   const startedAt = new Date();
   const results: RunResult['results'] = [];
   for (const account of accounts) {
@@ -15,7 +19,7 @@ export async function runCheckins(accounts: Account[], ctx: RunContext): Promise
     } catch (err) {
       result = { ok: false, message: `执行异常: ${(err as Error).message}` };
     }
-    results.push({
+    const entry = {
       account: account.name,
       provider: account.provider,
       ok: result.ok,
@@ -24,7 +28,9 @@ export async function runCheckins(accounts: Account[], ctx: RunContext): Promise
       detail: result.detail,
       rotatedRefreshToken: result.rotatedRefreshToken,
       refreshTokenEnv: account.refreshTokenEnv,
-    });
+    };
+    results.push(entry);
+    onResult?.(entry);
   }
   return {
     startedAt: startedAt.toISOString(),
