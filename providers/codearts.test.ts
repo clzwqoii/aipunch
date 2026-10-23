@@ -43,8 +43,7 @@ function mockCodeArts(handlers: {
   delivery?: () => Response;
   claim?: () => Response;
   confirm?: () => Response;
-  creditOverview?: () => Response;
-  creditPage?: (init?: RequestInit) => Response;
+  creditStats?: () => Response;
   onCall?: (url: string, init?: RequestInit) => void;
 }): typeof fetch {
   return (async (url: string | URL | Request, init?: RequestInit) => {
@@ -55,8 +54,7 @@ function mockCodeArts(handlers: {
     if (u.includes('/v1/ops/claim')) return handlers.claim!();
     if (u.includes('/v1/ops/confirm')) return handlers.confirm!();
     // 余额接口默认不可读：既有用例不关心余额，避免消息断言受影响
-    if (u.includes('/v1/ops/credit/overview')) return handlers.creditOverview?.() ?? new Response('{"code":1}', { status: 200 });
-    if (u.includes('/snap-manager/v1/package/credit/page')) return handlers.creditPage?.(init) ?? new Response('{"code":1}', { status: 200 });
+    if (u.includes('/snap-manager/v1/statistics/plugin')) return handlers.creditStats?.() ?? new Response('{"code":1}', { status: 200 });
     throw new Error(`unexpected url: ${u}`);
   }) as typeof fetch;
 }
@@ -282,20 +280,24 @@ test('legacy 字段形态（access/secret/securitytoken）也能解析', async (
   });
 });
 
-test('parseCodeartsBalance 汇总活动积分与套餐积分', () => {
+test('parseCodeartsBalance 取 usageTotalPackageCredit 的剩余积分', () => {
   assert.deepEqual(
-    parseCodeartsBalance(
-      { code: 0, data: { items: [{ totalClaimed: 1000, totalConsumed: 200, totalExpired: 100 }] } },
-      [{ code: 0, data: { list: [{ creditAmount: 500, creditUsed: 300 }] } }],
-    ),
+    parseCodeartsBalance({
+      code: 0,
+      data: {
+        metrics: [
+          { name: 'usageBasicPackageCredit', package_credit_amount: 1000, package_credit_remain: 600 },
+          { name: 'usageTotalPackageCredit', package_credit_amount: 1500, package_credit_remain: 900 },
+        ],
+      },
+    }),
     { remain: 900 },
   );
-  assert.equal(parseCodeartsBalance({ code: 1 }, []), null);
+  assert.equal(parseCodeartsBalance({ code: 1 }), null);
 });
 
 test('签到结果附带剩余积分（余额查询失败不影响签到）', async () => {
   await withCodeArtsEnv(async () => {
-    let sawPage = false;
     const ctx = ctxWith(
       mockCodeArts({
         token: TOKEN_OK,
@@ -304,20 +306,14 @@ test('签到结果附带剩余积分（余额查询失败不影响签到）', as
             JSON.stringify({ code: 0, data: { items: [{ campaignId: 1, status: 'CONFIRMED', title: '每日签到' }] } }),
             { status: 200 },
           ),
-        creditOverview: () =>
+        creditStats: () =>
           new Response(
-            JSON.stringify({ code: 0, data: { items: [{ totalClaimed: 1000, totalConsumed: 200, totalExpired: 100 }] } }),
+            JSON.stringify({
+              code: 0,
+              data: { metrics: [{ name: 'usageTotalPackageCredit', package_credit_amount: 1500, package_credit_remain: 900 }] },
+            }),
             { status: 200 },
           ),
-        creditPage: () => {
-          // 两次分页查询（basic/ondemand、bonus），只在第一次给套餐积分
-          const first = !sawPage;
-          sawPage = true;
-          return new Response(
-            JSON.stringify({ code: 0, data: { list: first ? [{ creditAmount: 500, creditUsed: 300 }] : [] } }),
-            { status: 200 },
-          );
-        },
       }),
     );
     const result = await codearts.checkin(account, ctx);

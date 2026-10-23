@@ -18,13 +18,9 @@ const TOKEN_URL = `${STS_HOST}/v1/oauth2/tokens`;
 const DELIVERY_PATH = '/v1/ops/delivery';
 const CLAIM_PATH = '/v1/ops/claim';
 const CONFIRM_PATH = '/v1/ops/confirm';
-// 积分余额（magpie 实测）：活动积分 overview + 套餐积分分页
-const CREDIT_OVERVIEW_PATH = '/v1/ops/credit/overview';
-const CREDIT_PAGE_PATH = '/snap-manager/v1/package/credit/page';
-const CREDIT_PAGE_QUERIES = [
-  { pageNum: 1, pageSize: 100, sortField: 'created_time', sortOrder: 'desc', packageTypes: ['basic', 'ondemand'] },
-  { pageNum: 1, pageSize: 100, packageTypes: ['bonus'] },
-];
+// 积分余额（magpie 实测）：statistics 里 usageTotalPackageCredit 的剩余量即总剩余积分
+const CREDIT_STATISTICS_PATH = '/snap-manager/v1/statistics/plugin';
+const TOTAL_CREDIT_METRIC = 'usageTotalPackageCredit';
 const CLIENT_ID = 'codearts-agent';
 const OPS_CHANNEL = 'IDE';
 const CAMPAIGN_DAILY_CREDIT = 1;
@@ -156,34 +152,18 @@ function num(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// overview.data.items[]: 活动积分（claimed - consumed - expired）
-// page.data.list[]: 套餐积分（creditAmount - creditUsed）
-export function parseCodeartsBalance(overview: unknown, pages: unknown[]): { remain: number } | null {
-  const unwrap = (body: unknown): Record<string, unknown> => {
-    const data = (body as { data?: unknown } | null)?.data;
-    if (!data || typeof data !== 'object') return {};
-    return data as Record<string, unknown>;
-  };
-  let reached = false;
-  let remain = 0;
-  const items = unwrap(overview).items;
-  if (Array.isArray(items)) {
-    reached = true;
-    for (const item of items) {
-      const c = item as Record<string, unknown>;
-      remain += Math.max(0, num(c.totalClaimed) - num(c.totalConsumed) - num(c.totalExpired));
-    }
-  }
-  for (const page of pages) {
-    const list = unwrap(page).list;
-    if (!Array.isArray(list)) continue;
-    reached = true;
-    for (const p of list) {
-      const credit = p as Record<string, unknown>;
-      remain += Math.max(0, num(credit.creditAmount) - num(credit.creditUsed));
-    }
-  }
-  return reached ? { remain: Math.round(remain * 100) / 100 } : null;
+// 响应：{ code, data: { metrics: [{ name, package_credit_amount, package_credit_remain }], package } }
+export function parseCodeartsBalance(body: unknown): { remain: number } | null {
+  const root = (body ?? {}) as Record<string, unknown>;
+  if (root.code !== undefined && Number(root.code) !== 0) return null;
+  const data = (root.data ?? root) as Record<string, unknown>;
+  const metrics = Array.isArray(data.metrics) ? data.metrics : null;
+  if (!metrics) return null;
+  const total = metrics.find((m) => (m as Record<string, unknown>)?.name === TOTAL_CREDIT_METRIC) as
+    | Record<string, unknown>
+    | undefined;
+  if (!total) return null;
+  return { remain: Math.round(num(total.package_credit_remain) * 100) / 100 };
 }
 
 interface BalanceResult {
@@ -193,19 +173,10 @@ interface BalanceResult {
 
 async function queryBalance(tokens: StsTokens, ctx: RunContext): Promise<BalanceResult> {
   try {
-    const overviewRes = await signedRequest(tokens, 'GET', CREDIT_OVERVIEW_PATH, '', Buffer.from(''), ctx);
-    const overview = await parseJson(overviewRes);
-    const pages = [];
-    const errors: string[] = [];
-    if (overview.data?.code !== 0) errors.push(`overview HTTP ${overviewRes.status} ${overview.text.slice(0, 200)}`);
-    for (const query of CREDIT_PAGE_QUERIES) {
-      const res = await signedRequest(tokens, 'POST', CREDIT_PAGE_PATH, '', Buffer.from(JSON.stringify(query)), ctx);
-      const parsed = await parseJson(res);
-      if (parsed.data?.code !== 0) errors.push(`page HTTP ${res.status} ${parsed.text.slice(0, 200)}`);
-      pages.push(parsed.data?.code === 0 ? parsed.data : null);
-    }
-    const balance = parseCodeartsBalance(overview.data?.code === 0 ? overview.data : null, pages);
-    return { balance, error: balance ? undefined : errors.join(' | ') || 'unparsed' };
+    const res = await signedRequest(tokens, 'GET', CREDIT_STATISTICS_PATH, '', Buffer.from(''), ctx);
+    const parsed = await parseJson(res);
+    const balance = parseCodeartsBalance(parsed.data);
+    return { balance, error: balance ? undefined : `HTTP ${res.status} ${parsed.text.slice(0, 200)}` };
   } catch (err) {
     return { balance: null, error: (err as Error).message };
   }
