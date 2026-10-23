@@ -63,8 +63,11 @@ async function main(): Promise<void> {
     console.log(`${r.ok ? '[OK]' : '[FAIL]'} ${r.provider}/${r.account}: ${r.message} (${r.durationMs}ms)`);
     if (verbose) {
       const detailJson = JSON.stringify(r.detail ?? null);
-      // ponytail: 原始响应可能很大（几十个套餐包），截断到 2000 字符，完整结构看代码里的字段
-      console.log(`  detail: ${detailJson.length > 200000 ? `${detailJson.slice(0, 200000)}…(truncated)` : detailJson}`);
+      // GitHub 日志会吞掉超长单行：按 8000 字符分块，拼接后仍是完整 JSON
+      const CHUNK = 8000;
+      for (let i = 0; i < detailJson.length; i += CHUNK) {
+        console.log(`  detail[${i}]: ${detailJson.slice(i, i + CHUNK)}`);
+      }
     }
   });
   console.log(`完成: ${result.succeeded}/${result.total} 成功`);
