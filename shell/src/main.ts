@@ -431,6 +431,23 @@ function applyBalances(): void {
     el.textContent = `${t("cardBalance")} ${formatBalance(entry.balance)}`;
     el.hidden = false;
   });
+  renderTotalBalance();
+}
+
+function renderTotalBalance(): void {
+  const el = document.getElementById("total-claimed-pts");
+  if (!el) return;
+  const balances = lastRunEntries.map((r) => r.balance).filter((b): b is LastRunBalance => !!b);
+  if (balances.length === 0) {
+    el.textContent = "—";
+    return;
+  }
+  if (balances.some((b) => b.unlimited)) {
+    el.textContent = "∞";
+    return;
+  }
+  const total = balances.reduce((sum, b) => sum + b.remain, 0);
+  el.textContent = total.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
 async function loadConfigAndState() {
