@@ -11,10 +11,12 @@ const RUN_TIMEOUT_MS = 20 * 60_000;
 export interface CiArgs {
   provider?: string;
   account?: string;
+  check?: boolean;
 }
 
 export function parseCiArgs(argv: string[]): CiArgs {
   const out: CiArgs = {};
+  if (argv.includes('--check')) out.check = true;
   for (const flag of ['provider', 'account'] as const) {
     const idx = argv.indexOf(`--${flag}`);
     if (idx === -1) continue;
@@ -23,6 +25,37 @@ export function parseCiArgs(argv: string[]): CiArgs {
     out[flag] = value;
   }
   return out;
+}
+
+export interface GhInfo {
+  version: string;
+  repo: string;
+}
+
+// 预检：没装 gh / 没登录 / 当前目录不是仓库，都给出可执行的下一步
+export async function checkGh(run: (args: string[]) => Promise<string>): Promise<GhInfo> {
+  let version: string;
+  try {
+    version = (await run(['--version'])).split('\n')[0].trim();
+  } catch (err) {
+    if (/ENOENT/i.test((err as Error).message)) {
+      throw new Error(
+        '未检测到 gh CLI。macOS 安装：brew install gh（Windows：winget install GitHub.cli），装完运行 gh auth login',
+      );
+    }
+    throw err;
+  }
+  try {
+    await run(['auth', 'status']);
+  } catch {
+    throw new Error('gh 未登录：运行 gh auth login 后重试');
+  }
+  try {
+    const repo = JSON.parse(await run(['repo', 'view', '--json', 'nameWithOwner'])) as { nameWithOwner: string };
+    return { version, repo: repo.nameWithOwner };
+  } catch {
+    throw new Error('当前项目不是 GitHub 仓库或 gh 账号无权限：检查 git remote 指向，并用该账号 gh auth login');
+  }
 }
 
 export function dispatchArgs(args: CiArgs): string[] {
@@ -126,6 +159,11 @@ async function waitForRun(run: RunSummary): Promise<RunSummary> {
 
 async function main(): Promise<void> {
   const args = parseCiArgs(process.argv.slice(2));
+  const info = await checkGh(gh);
+  if (args.check) {
+    console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录`);
+    return;
+  }
   const since = Date.now() - 60_000; // 容忍时钟偏差
   await gh(dispatchArgs(args));
   const run = await findRun(since);

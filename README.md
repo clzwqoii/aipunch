@@ -33,7 +33,7 @@
 
 Tauri 2.12 桌面应用是主推形态：把「配账号、看记录、手动跑一次」做成图形界面，凭证自动发现从本机已安装客户端直接导入 token。安装包 <10MB、常驻内存约 30–50MB，覆盖桌面三端。选型理由与职责边界见 [`docs/adr/0001-tauri-shell-and-ts-core.md`](docs/adr/0001-tauri-shell-and-ts-core.md)。
 
-> 「一键签到」触发 GitHub Actions 执行并实时回显结果（`npm run ci-checkin`）：凭证是单次轮换票，执行端必须唯一，桌面端只做触发与展示。使用前需安装并登录 `gh` CLI（`brew install gh && gh auth login`）。
+> 「一键签到」触发 GitHub Actions 执行并实时回显结果（`npm run ci-checkin`）：凭证是单次轮换票，执行端必须唯一，桌面端只做触发与展示。使用前需安装并登录 `gh` CLI（`brew install gh && gh auth login`）；环境自检：`npm run ci-checkin -- --check`（未装/未登录/无仓库权限都会给出下一步）。
 
 > 状态：**v1 开发中，尚未发布**。当前请先用下面的命令行方式——核心逻辑（`core/`）与桌面壳完全共用，壳发布后零迁移成本。
 

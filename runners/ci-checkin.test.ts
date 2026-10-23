@@ -1,12 +1,46 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dispatchArgs, exitCodeFor, filterResultLogs, parseCiArgs, pickRun } from './ci-checkin.ts';
+import { checkGh, dispatchArgs, exitCodeFor, filterResultLogs, parseCiArgs, pickRun } from './ci-checkin.ts';
 
-test('parseCiArgs 解析 provider/account', () => {
+test('parseCiArgs 解析 provider/account 与 --check', () => {
   assert.deepEqual(parseCiArgs([]), {});
   assert.deepEqual(parseCiArgs(['--provider', 'trae']), { provider: 'trae' });
   assert.deepEqual(parseCiArgs(['--provider', 'trae', '--account', 'main']), { provider: 'trae', account: 'main' });
+  assert.deepEqual(parseCiArgs(['--check']), { check: true });
   assert.throws(() => parseCiArgs(['--provider']), /缺少值/);
+});
+
+test('checkGh 未安装时给出安装与登录指引', async () => {
+  const run = async () => {
+    throw new Error('gh --version 失败: spawn gh ENOENT');
+  };
+  await assert.rejects(checkGh(run), /brew install gh/);
+});
+
+test('checkGh 未登录时提示 gh auth login', async () => {
+  const run = async (args: string[]) => {
+    if (args[0] === '--version') return 'gh version 2.60.0 (2026-01-01)';
+    throw new Error('gh auth status 失败: not logged in');
+  };
+  await assert.rejects(checkGh(run), /gh auth login/);
+});
+
+test('checkGh 目录不是 GitHub 仓库时提示检查 remote 与权限', async () => {
+  const run = async (args: string[]) => {
+    if (args[0] === '--version') return 'gh version 2.60.0';
+    if (args[0] === 'auth') return 'Logged in to github.com';
+    throw new Error('gh repo view 失败: not a git repository');
+  };
+  await assert.rejects(checkGh(run), /GitHub 仓库|权限/);
+});
+
+test('checkGh 通过时返回版本与仓库', async () => {
+  const run = async (args: string[]) => {
+    if (args[0] === '--version') return 'gh version 2.60.0 (2026-01-01)\nhttps://github.com/cli/cli';
+    if (args[0] === 'auth') return 'Logged in to github.com account clzwqoii';
+    return '{"nameWithOwner":"clzwqoii/aipunch"}';
+  };
+  assert.deepEqual(await checkGh(run), { version: 'gh version 2.60.0 (2026-01-01)', repo: 'clzwqoii/aipunch' });
 });
 
 test('dispatchArgs 只带非空过滤器', () => {
