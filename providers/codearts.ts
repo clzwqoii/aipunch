@@ -18,6 +18,13 @@ const TOKEN_URL = `${STS_HOST}/v1/oauth2/tokens`;
 const DELIVERY_PATH = '/v1/ops/delivery';
 const CLAIM_PATH = '/v1/ops/claim';
 const CONFIRM_PATH = '/v1/ops/confirm';
+// 积分余额（magpie 实测）：活动积分 overview + 套餐积分分页
+const CREDIT_OVERVIEW_PATH = '/v1/ops/credit/overview';
+const CREDIT_PAGE_PATH = '/snap-manager/v1/package/credit/page';
+const CREDIT_PAGE_QUERIES = [
+  { pageNum: 1, pageSize: 100, sortField: 'created_time', sortOrder: 'desc', packageTypes: ['basic', 'ondemand'] },
+  { pageNum: 1, pageSize: 100, packageTypes: ['bonus'] },
+];
 const CLIENT_ID = 'codearts-agent';
 const OPS_CHANNEL = 'IDE';
 const CAMPAIGN_DAILY_CREDIT = 1;
@@ -144,6 +151,57 @@ function findCampaign(data: JsonBody | null): Campaign | null {
   return (found as Campaign) ?? null;
 }
 
+function num(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// overview.data.items[]: 活动积分（claimed - consumed - expired）
+// page.data.list[]: 套餐积分（creditAmount - creditUsed）
+export function parseCodeartsBalance(overview: unknown, pages: unknown[]): { remain: number } | null {
+  const unwrap = (body: unknown): Record<string, unknown> => {
+    const data = (body as { data?: unknown } | null)?.data;
+    if (!data || typeof data !== 'object') return {};
+    return data as Record<string, unknown>;
+  };
+  let reached = false;
+  let remain = 0;
+  const items = unwrap(overview).items;
+  if (Array.isArray(items)) {
+    reached = true;
+    for (const item of items) {
+      const c = item as Record<string, unknown>;
+      remain += Math.max(0, num(c.totalClaimed) - num(c.totalConsumed) - num(c.totalExpired));
+    }
+  }
+  for (const page of pages) {
+    const list = unwrap(page).list;
+    if (!Array.isArray(list)) continue;
+    reached = true;
+    for (const p of list) {
+      const credit = p as Record<string, unknown>;
+      remain += Math.max(0, num(credit.creditAmount) - num(credit.creditUsed));
+    }
+  }
+  return reached ? { remain: Math.round(remain * 100) / 100 } : null;
+}
+
+async function queryBalance(tokens: StsTokens, ctx: RunContext): Promise<{ remain: number } | null> {
+  try {
+    const overviewRes = await signedRequest(tokens, 'GET', CREDIT_OVERVIEW_PATH, '', Buffer.from(''), ctx);
+    const overview = await parseJson(overviewRes);
+    const pages = [];
+    for (const query of CREDIT_PAGE_QUERIES) {
+      const res = await signedRequest(tokens, 'POST', CREDIT_PAGE_PATH, '', Buffer.from(JSON.stringify(query)), ctx);
+      const parsed = await parseJson(res);
+      pages.push(parsed.data?.code === 0 ? parsed.data : null);
+    }
+    return parseCodeartsBalance(overview.data?.code === 0 ? overview.data : null, pages);
+  } catch {
+    return null; // 余额查询失败不影响签到判定
+  }
+}
+
 export const codearts: Provider = {
   id: 'codearts',
   name: '码道 CodeArts',
@@ -161,6 +219,9 @@ export const codearts: Provider = {
       return { ok: false, message: (err as Error).message };
     }
 
+    const balance = await queryBalance(tokens, ctx);
+    const balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
+
     const deliveryRes = await signedRequest(tokens, 'GET', DELIVERY_PATH, `channel=${OPS_CHANNEL}`, Buffer.from(''), ctx);
     const delivery = await parseJson(deliveryRes);
     // 错误信封（APIG  TM.*/error_code）没有 data——必须判失败，不能误报「活动未开放」
@@ -176,10 +237,10 @@ export const codearts: Provider = {
     }
     const campaign = findCampaign(delivery.data);
     if (!campaign) {
-      return { ok: true, message: '官方签到活动未开放', detail: { delivery: delivery.data }, rotatedRefreshToken };
+      return { ok: true, message: `官方签到活动未开放${balanceSuffix}`, detail: { delivery: delivery.data, balance, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.endTime && Date.parse(campaign.endTime) <= ctx.now.getTime()) {
-      return { ok: true, message: '官方签到活动已结束', detail: { campaign }, rotatedRefreshToken };
+      return { ok: true, message: `官方签到活动已结束${balanceSuffix}`, detail: { campaign, balance, rotatedRefreshToken }, rotatedRefreshToken };
     }
 
     const confirm = async (): Promise<CheckinResult | null> => {
@@ -192,12 +253,12 @@ export const codearts: Provider = {
     };
 
     if (campaign.status === 'CONFIRMED' || campaign.status === 'CONSUMED') {
-      return { ok: true, message: '今日已签到', detail: { campaign }, rotatedRefreshToken };
+      return { ok: true, message: `今日已签到${balanceSuffix}`, detail: { campaign, balance, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'CLAIMED') {
       // 已领未确认：只补第二步。confirm 失败必须报失败，否则当天封账后再不补确认
       const failure = await confirm();
-      return failure ?? { ok: true, message: '已补确认签到（积分已在 claim 时到账）', detail: { campaign }, rotatedRefreshToken };
+      return failure ?? { ok: true, message: `已补确认签到（积分已在 claim 时到账）${balanceSuffix}`, detail: { campaign, balance, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'ELIGIBLE' && campaign.claimable === true) {
       const idempotentKey = `claim_${CAMPAIGN_DAILY_CREDIT}_${Date.now()}`;
@@ -223,7 +284,7 @@ export const codearts: Provider = {
       const failure = await confirm();
       if (failure) return failure;
       const amount = typeof campaign.benefitAmount === 'number' ? `：+${campaign.benefitAmount} 积分` : '';
-      return { ok: true, message: `签到成功${amount}`, detail: { campaign, claim: claim.data }, rotatedRefreshToken };
+      return { ok: true, message: `签到成功${amount}${balanceSuffix}`, detail: { campaign, claim: claim.data, balance, rotatedRefreshToken }, rotatedRefreshToken };
     }
     return { ok: false, message: '当前不可领取（活动存在但不可领）', detail: { campaign }, rotatedRefreshToken };
   },
