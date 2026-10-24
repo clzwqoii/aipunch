@@ -223,6 +223,7 @@
                   <!-- card 本身是 button（嵌套交互元素违规），标识用 span + stopPropagation 打开配置教程弹框 -->
                   <span class="platform-badge" id="cloud-config-open" data-i18n="cloudConfigBadge" title="配置流程教程">⚙ 配置</span>
                 </span>
+                <span class="platform-state" id="gh-config-state">○ 未配置仓库</span>
                 <span class="platform-desc" data-i18n="cloudPlatformGithubDesc">云端定时+触发执行，结果经 ci-sync 拉取同步到本地</span>
               </button>
               <button class="platform-card" data-platform="cloudflare-workers">
@@ -231,6 +232,7 @@
                   <!-- card 本身是 button（嵌套交互元素违规），标识用 span + stopPropagation 打开部署弹框 -->
                   <span class="platform-badge" id="cf-deploy-open" data-i18n="cfDeployBadge" title="部署到 Cloudflare">⚙ 部署</span>
                 </span>
+                <span class="platform-state" id="cf-deploy-state">○ 未部署</span>
                 <span class="platform-desc" data-i18n="cloudPlatformCfDesc">零仓库云端执行端：粘贴 API Token 即部署，无需 GitHub；每日定时自动执行</span>
               </button>
             </div>
@@ -469,6 +471,7 @@
         </div>
         <div class="modal-body">
           <p class="text-muted" data-i18n="cfDeploySub">粘贴 Cloudflare 凭证即可代部署（KV + 脚本 + Secrets + 定时），无需安装 wrangler</p>
+          <p class="config-status" id="cf-deploy-result" hidden></p>
           <div class="cf-deploy-form">
             <label for="cf-token-input"><span data-i18n="cfTokenLabel">API Token</span>
               <input id="cf-token-input" type="password" placeholder="Workers Scripts:Edit + Workers KV Storage:Edit 权限" />

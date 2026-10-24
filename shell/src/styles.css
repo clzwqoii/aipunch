@@ -1757,6 +1757,16 @@ input:checked + .slider:before {
   line-height: 1.5;
 }
 
+/* 平台卡配置状态行：已部署/已配置（绿） vs 未部署/未配置（灰） */
+.platform-state {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.platform-state.state-ok {
+  color: #16a34a;
+}
+
 /* 云端 CI：自动执行说明与 GitHub 配置区 */
 .cloud-note {
   margin: 0;

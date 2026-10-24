@@ -642,9 +642,11 @@ async function loadConfigAndState() {
     const configStr = await invoke<string>("get_config");
     currentConfig = JSON.parse(configStr);
     // 凭证既可能在 .env，也可能由进程环境提供；把候选键交给后端一起判定
-    const envKeys = currentConfig.accounts
-      .flatMap((acc) => [acc.tokenEnv, acc.refreshTokenEnv])
-      .filter((key): key is string => !!key);
+    // （CF_KV_NAMESPACE 随部署成功写回，作为 CF 卡「已部署」状态的事实源）
+    const envKeys = [
+      ...currentConfig.accounts.flatMap((acc) => [acc.tokenEnv, acc.refreshTokenEnv]),
+      "CF_KV_NAMESPACE",
+    ].filter((key): key is string => !!key);
     configuredEnvKeys = await invoke<string[]>("get_env_status", { keys: envKeys });
 
     renderProviderCards();
@@ -853,6 +855,19 @@ function renderPlatformCards(): void {
   document.querySelectorAll<HTMLButtonElement>("#cloud-platform-grid .platform-card").forEach((card) => {
     card.classList.toggle("active", card.dataset.platform === active);
   });
+  // 配置状态行：GitHub 看 config.repo；CF 看部署时写回 .env 的 CF_KV_NAMESPACE
+  const gh = document.getElementById("gh-config-state");
+  if (gh) {
+    const ok = !!currentConfig.repo?.trim();
+    gh.textContent = ok ? t("ghStateReady") : t("ghStateMissing");
+    gh.classList.toggle("state-ok", ok);
+  }
+  const cf = document.getElementById("cf-deploy-state");
+  if (cf) {
+    const ok = configuredEnvKeys.includes("CF_KV_NAMESPACE");
+    cf.textContent = ok ? t("cfStateDeployed") : t("cfStateNotDeployed");
+    cf.classList.toggle("state-ok", ok);
+  }
 }
 
 // GitHub Actions 配置状态：repo 是否已配置 + 最近一次「检查配置」结果（检查复用 ci-checkin --check）
@@ -936,17 +951,45 @@ function setupCloudControls(): void {
   document.getElementById("btn-cf-open-token-page")?.addEventListener("click", () => {
     void invoke("open_external", { target: "https://dash.cloudflare.com/profile/api-tokens" });
   });
-  document.getElementById("btn-cf-deploy-run")?.addEventListener("click", () => {
+  document.getElementById("btn-cf-deploy-close")?.addEventListener("click", () => cfModal?.classList.add("hidden"));
+  // 部署按钮生命周期：部署中禁用并保持弹框 → 按退出码给结果；成功才关闭并刷新卡片状态，失败留在弹框内修正重试
+  document.getElementById("btn-cf-deploy-run")?.addEventListener("click", async () => {
+    const runBtn = document.getElementById("btn-cf-deploy-run") as HTMLButtonElement | null;
+    const resultEl = document.getElementById("cf-deploy-result");
     const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();
     const account = (document.getElementById("cf-account-input") as HTMLInputElement | null)?.value.trim();
     const hour = (document.getElementById("schedule-hour") as HTMLSelectElement | null)?.value;
     const tz = (document.getElementById("schedule-tz") as HTMLSelectElement | null)?.value;
     if (!token || !account || !hour || !tz) {
-      appendTerminalLog("[CF] 请完整填写 API Token 与 Account ID");
+      resultEl?.classList.remove("hidden", "config-ok", "config-fail");
+      resultEl?.classList.add("config-warn");
+      resultEl!.hidden = false;
+      if (resultEl) resultEl.textContent = "⚠ 请完整填写 API Token 与 Account ID";
       return;
     }
-    cfModal?.classList.add("hidden");
-    void startRunner("cf-deploy", ["--token", token, "--account", account, "--hour", hour, "--tz", tz]);
+    if (runBtn) {
+      runBtn.disabled = true;
+      runBtn.textContent = t("cfDeployRunning");
+    }
+    if (resultEl) {
+      resultEl.hidden = false;
+      resultEl.className = "config-status";
+      resultEl.textContent = t("cfDeployRunning");
+    }
+    const code = await startRunner("cf-deploy", ["--token", token, "--account", account, "--hour", hour, "--tz", tz]);
+    if (runBtn) {
+      runBtn.disabled = false;
+      runBtn.textContent = t("cfDeployBtn");
+    }
+    if (resultEl) {
+      resultEl.className = `config-status ${code === 0 ? "config-ok" : "config-fail"}`;
+      resultEl.textContent = code === 0 ? t("cfDeployOk") : t("cfDeployFail");
+    }
+    if (code === 0) {
+      // 部署成功：.env 已写入 CF_*，重查环境键让 CF 卡点亮「已部署」
+      await loadConfigAndState();
+      setTimeout(() => cfModal?.classList.add("hidden"), 1500);
+    }
   });
 
   // 配置教程弹框：GitHub 卡片上的 ⚙ 标识（stopPropagation 避免触发平台切换）
