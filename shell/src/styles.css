@@ -794,7 +794,8 @@ html[data-theme="light"] .pts-number {
   color: var(--accent-color);
   display: flex;
   align-items: center;
-  justify-content: center; /* 「执行完成/就绪」等状态文字居中 */
+  justify-content: center;
+  align-self: stretch; /* 占满 hero-right 宽度，文字才会真的居中 */
   gap: 6px;
 }
 
@@ -1956,4 +1957,20 @@ input:checked + .slider:before {
   margin-left: auto;
   font-size: 11px;
   color: #10b981;
+}
+
+/* 一键签到执行中的加载动画（按钮文案保持不变） */
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

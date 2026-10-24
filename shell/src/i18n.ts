@@ -20,6 +20,7 @@ export const translations = {
     themeDark: "深色",
 
     heroTitle: "总览",
+    heroDesc: "多平台定时自动签到与凭据轮换",
     heroPtsLabel: "今日签到",
     heroRunAll: "一键签到",
     heroAllDone: "今日已全部签到",
@@ -221,7 +222,8 @@ export const translations = {
     themeLight: "Light",
     themeDark: "Dark",
 
-    heroTitle: "Daily Check-in Summary",
+    heroTitle: "Overview",
+    heroDesc: "Multi-platform scheduled check-ins with credential rotation",
     heroPtsLabel: "check-ins",
     heroRunAll: "Check In All",
     heroAllDone: "All checked in",

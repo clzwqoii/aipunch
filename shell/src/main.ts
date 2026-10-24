@@ -794,9 +794,12 @@ function setRunButton(running: boolean) {
   if (btnStop) btnStop.disabled = !running;
   const btnRunAll = document.getElementById("btn-run-all") as HTMLButtonElement | null;
   const btnRunAllText = document.getElementById("btn-run-all-text");
+  const spinner = document.getElementById("btn-run-all-spinner");
   if (!btnRunAll || !btnRunAllText) return;
   btnRunAll.disabled = running;
-  btnRunAllText.textContent = running ? t("heroRunning") : t("heroRunAll");
+  // 执行中只切加载动画，按钮文案保持「一键签到」不变
+  btnRunAllText.hidden = running;
+  if (spinner) spinner.hidden = !running;
 }
 
 async function startRunner(
@@ -1229,8 +1232,8 @@ function openAuthModal(provider: string) {
   // 渲染多模态卡片列表
   body.innerHTML = `
     <div class="auth-modal-modes">
-      <!-- 途径 1：官方网页 / 浏览器登录 -->
-      <div class="auth-option-card">
+      <!-- 途径 1：官方网页 / 浏览器登录（无手动 token 入口的 provider 渲染后移除：登录完无凭证回传） -->
+      <div class="auth-option-card" data-auth-web-card>
         <div class="auth-option-header">
           <span>${t("tabBrowser")}</span>
           <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7;">Web</span>
@@ -1269,9 +1272,13 @@ function openAuthModal(provider: string) {
     </div>
   `;
 
-  // 无 localApp 的 provider（如 CodeArts：凭证只能走 OAuth PKCE，客户端调起无意义）不显示本机卡片
+  // 无 localApp 的 provider（如 CodeArts：凭证只能走 OAuth PKCE，客户端调起无意义）不显示本机卡片；
+  // trae/codearts 无手动 token 入口，官方网页登录也不会回传凭证——同样隐藏，避免「登录完没反应」
   if (provider !== "trae" && !meta.localApp) {
     modal.querySelector("[data-auth-app-card]")?.remove();
+  }
+  if (MANUAL_TOKEN_UNSUPPORTED.has(provider)) {
+    modal.querySelector("[data-auth-web-card]")?.remove();
   }
 
   // 隐藏全局确认按钮，由卡片内各自的具体动作驱动
