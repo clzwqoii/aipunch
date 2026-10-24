@@ -1269,6 +1269,11 @@ function openAuthModal(provider: string) {
     </div>
   `;
 
+  // 无 localApp 的 provider（如 CodeArts：凭证只能走 OAuth PKCE，客户端调起无意义）不显示本机卡片
+  if (provider !== "trae" && !meta.localApp) {
+    modal.querySelector("[data-auth-app-card]")?.remove();
+  }
+
   // 隐藏全局确认按钮，由卡片内各自的具体动作驱动
   confirmBtn.style.display = "none";
 

@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 
   if (args.includes('--print')) return;
 
-  const envFile = join(process.cwd(), '.env');
+  const envFile = join(process.env.AIPUNCH_WORK_DIR ?? process.cwd(), '.env');
   setEnvValue(envFile, 'TRAE_REFRESH_TOKEN', creds.refreshToken);
   setEnvValue(envFile, 'TRAE_DEVICE_ID', creds.deviceId);
   if (creds.userId) setEnvValue(envFile, 'TRAE_USER_ID', creds.userId);
