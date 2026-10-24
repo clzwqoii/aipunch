@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ResultFile } from '../core/result.ts';
 import { checkGh, configRepo, gh, mergeRunResults } from './ci-checkin.ts';
+import { loadDotEnv } from '../core/dotenv.ts';
 import { readKvValue } from '../cloudflare/cf-api.ts';
 
 // 拉取云端最新完成运行的签到结果（不限触发来源：定时 / 网页 / 桌面端触发都算），
@@ -101,6 +102,8 @@ async function mainKv(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // CF 分支的 CF_* 配置在 .env（部署时写回）：与 cli/cf-deploy 同款，先注入再读
+  loadDotEnv();
   if (platformFromConfig() === 'cloudflare-workers') return mainKv();
   const repo = configRepo();
   await checkGh(gh, repo);
