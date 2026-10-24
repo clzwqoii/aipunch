@@ -5,7 +5,7 @@ on:
     # cron 使用 UTC。这一行是定时调度的唯一来源：桌面端「执行平台 → 定时执行 → 保存定时」
     # 会通过 gh API 自动把它改成对应时区的 UTC 整点（ci-checkin --set-schedule），每天只真跑一次。
     # 默认 '0 3 * * *' = 北京时间 11:00。手动改时区注意 UTC = 当地时间 - 偏移。
-    - cron: '0 3 * * *'
+    - cron: '0 03 * * *'
     # 注意：GitHub 对 60 天无活动的仓库会停用定时工作流，偶尔手动触发一次即可保活
   workflow_dispatch: # 手动触发：Actions 页面 → Run workflow；桌面端「一键签到」走这里
     inputs:
