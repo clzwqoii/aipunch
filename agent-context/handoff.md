@@ -17,6 +17,7 @@
   - `runners/cf-deploy.ts`：--token/--account（env 兜底）代部署全流程（KV→config→worker→Secrets→.env 回写 CF_ACCOUNT_ID/API_TOKEN/KV_NAMESPACE）；`--trigger-now`=临时 cron 下一分钟→轮询 KV result→恢复；`--cron-only`=只改定时
   - 桌面端：CF 卡解禁+⚙ 部署弹框（token/account 表单，定时沿用定时行值）；activePlatform 三态；一键签到 CF 分流 --trigger-now；切 CF 时 GitHub workflow 自动 disable；「保存定时」CF 分流 --cron-only
 - 待实测（需用户 CF 账号）：粘贴 Token/Account 部署 → 切 CF 平台 → --trigger-now 跑通 → KV result 同步回桌面 → 次日定时自动执行；CPU 10ms 限制下 CodeArts DPoP 等路径实测再放行（ADR 0004）
+- 关联（2533c84）：云端 CI 页新增网络状态行（GitHub/Cloudflare API 域可达性 chip，启动 5s 自查 + 手动「网络检查」，netcheck runner 输出 [NET] 行单点解析）——国内可达性是平台选型依据（ADR 0003）；两平台弹框均含一键打开 Fork/令牌创建页
 - 修订：
   - 2026-10-24 首次记录
 
