@@ -13,9 +13,11 @@ export interface ResultEntry {
   ok: boolean;
   message: string;
   balance: Balance | null;
+  skipped?: boolean; // 今日已签的幂等跳过（本轮无新领取），桌面端用独立图标展示且计入已签
 }
 
 export interface ResultFile {
+  runId?: number; // 触发该结果的 CI 运行 ID（ci-checkin/ci-sync 补写；ci-sync 据此防重复拉取同一运行）
   finishedAt: string;
   runUrl?: string; // ci-checkin 补写，桌面端点击状态环可跳转
   total: number;
@@ -58,6 +60,7 @@ export function toResultFile(result: RunResult): ResultFile {
       ok: r.ok,
       message: r.message,
       balance: extractBalance(r.detail),
+      skipped: r.skipped,
     })),
   };
 }

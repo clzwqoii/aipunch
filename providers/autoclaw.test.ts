@@ -65,7 +65,21 @@ test('今日已签（already_completed，success=false，reward_points=0）判�
   );
   const result = await autoclaw.checkin(account, ctx);
   assert.equal(result.ok, true);
+  assert.equal(result.skipped, true, 'already_completed 幂等已签应显式标记 skipped');
   assert.match(result.message, /已签|已领取/);
+});
+
+test('真签到但无积分奖励不标记 skipped', async () => {
+  const ctx = ctxWith(
+    mockAutoClaw({
+      checkin: () =>
+        new Response(JSON.stringify({ code: 0, data: { success: true, already_completed: false, reward_points: 0 } }), { status: 200 }),
+    }),
+  );
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.notEqual(result.skipped, true, '本轮真实签到（无奖励）不是幂等跳过');
+  assert.match(result.message, /无积分奖励/);
 });
 
 test('code=410000（登录态过期）判定失败', async () => {
@@ -265,6 +279,7 @@ test('任务状态已完成时不发 claim', async () => {
   );
   const result = await autoclaw.checkin(account, ctx);
   assert.equal(result.ok, true);
+  assert.equal(result.skipped, true, '任务状态确认已签应显式标记 skipped');
   assert.match(result.message, /今日已签到/);
   assert.ok(!calls.some((u) => u.includes('/autoclaw-task-complete')), '已完成时不应再调 claim');
 });

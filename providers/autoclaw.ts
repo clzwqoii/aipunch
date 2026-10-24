@@ -236,6 +236,7 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
       return {
         ok: true,
         message: `今日已签到（状态确认）${balanceSuffix}`,
+        skipped: true,
         detail: { status: 'completed', signinStatus, balance, balanceError: balanceResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };
@@ -272,6 +273,8 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
       return {
         ok: true,
         message: `${alreadyCompleted ? '今日已签到（服务端幂等跳过）' : '签到成功（本次无积分奖励）'}${balanceSuffix}`,
+        // 真签到但无奖励不是幂等跳过，不标 skipped
+        skipped: alreadyCompleted || undefined,
         detail: { status: res.status, body: data, balance, balanceError: balanceResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };

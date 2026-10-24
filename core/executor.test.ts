@@ -54,6 +54,27 @@ test('provider 抛异常记录为失败，且不中断后续账号', async () =>
   assert.match(result.results[0].message, /network down/);
 });
 
+test('provider 返回 skipped 时透传到 AccountResult（幂等已签与真签到区分）', async () => {
+  register({
+    id: 'idem',
+    name: 'Idem',
+    async checkin(account: Account) {
+      return account.name === 'done'
+        ? { ok: true, message: '今日已签', skipped: true }
+        : { ok: true, message: '签到成功' };
+    },
+  });
+  const result = await runCheckins(
+    [
+      { provider: 'idem', name: 'done', token: 't' },
+      { provider: 'idem', name: 'fresh', token: 't' },
+    ],
+    ctx,
+  );
+  assert.equal(result.results[0].skipped, true);
+  assert.notEqual(result.results[1].skipped, true);
+});
+
 test('账号引用未注册 provider 时该账号记为失败', async () => {
   const result = await runCheckins([{ provider: 'ghost', name: 'g', token: 't' }], ctx);
   assert.equal(result.results[0].ok, false);

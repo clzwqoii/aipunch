@@ -78,6 +78,7 @@ test('今日已领取（CLAIMED 在窗口内）不发起 claim，判定成功', 
   }) as typeof fetch);
   const result = await qoder.checkin(account, ctx);
   assert.equal(result.ok, true);
+  assert.equal(result.skipped, true, 'CLAIMED 幂等已领应显式标记 skipped');
   assert.equal(claimCalled, false);
   assert.match(result.message, /已领取/);
 });

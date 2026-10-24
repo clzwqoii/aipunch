@@ -153,7 +153,8 @@ export const workbuddy: Provider = {
     const message = data.message ?? data.msg ?? '';
 
     // 签到成功（含幂等已签）后的增值动作：积分对比 + 连登管家，全部降级不抛错
-    const finalizeSuccess = async (base: string): Promise<CheckinResult> => {
+    // skipped=true 表示本轮为幂等跳过（今日已签），无新领取动作
+    const finalizeSuccess = async (base: string, skipped = false): Promise<CheckinResult> => {
       const parts = [base];
       let balanceAfter: Balance | null = null;
       let balanceAfterRaw: unknown = null;
@@ -197,6 +198,7 @@ export const workbuddy: Provider = {
           balanceAfterRaw,
           streak,
         },
+        skipped: skipped || undefined,
         rotatedRefreshToken,
       };
     };
@@ -205,7 +207,7 @@ export const workbuddy: Provider = {
       return finalizeSuccess('签到成功');
     }
     if (code === 10001) {
-      return finalizeSuccess('今日已签到（服务端幂等跳过）');
+      return finalizeSuccess('今日已签到（服务端幂等跳过）', true);
     }
     return { ok: false, message: `签到失败: code=${code} ${message}`, detail: { status: res.status, body: data, rotatedRefreshToken }, rotatedRefreshToken };
   },

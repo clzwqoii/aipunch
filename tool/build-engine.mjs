@@ -16,6 +16,7 @@ const engineDir = join(resourcesDir, 'engine');
 const ENTRIES = {
   cli: 'runners/cli.ts',
   'ci-checkin': 'runners/ci-checkin.ts',
+  'ci-sync': 'runners/ci-sync.ts',
   'trae-extract': 'runners/trae-extract.ts',
   'trae-login': 'runners/trae-login.ts',
   'qoder-login': 'runners/qoder-login.ts',

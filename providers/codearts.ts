@@ -235,7 +235,7 @@ export const codearts: Provider = {
     };
 
     if (campaign.status === 'CONFIRMED' || campaign.status === 'CONSUMED') {
-      return { ok: true, message: `今日已签到${balanceSuffix}`, detail: { campaign, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `今日已签到${balanceSuffix}`, skipped: true, detail: { campaign, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'CLAIMED') {
       // 已领未确认：只补第二步。confirm 失败必须报失败，否则当天封账后再不补确认

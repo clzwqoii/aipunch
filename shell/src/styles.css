@@ -1260,7 +1260,7 @@ input:checked + .slider:before {
 .history-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .empty-state {
@@ -1613,16 +1613,169 @@ input:checked + .slider:before {
   color: var(--text-secondary);
 }
 
-/* 执行记录 */
+/* 云端 CI：同步状态条与平台单选卡（紧凑版：板块间距小、白底，执行记录保持在首屏） */
+#tab-cloud {
+  gap: 12px;
+}
+
+#tab-cloud .pane-header {
+  padding: 10px 16px;
+}
+
+.cloud-sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.cloud-sync-bar .sync-status {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.cloud-sync-bar .btn-secondary {
+  padding: 4px 10px;
+}
+
+/* 定时窗口行：label 内联两组下拉（小时 / 时区） */
+.schedule-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.schedule-select {
+  padding: 3px 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.cloud-platform-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.platform-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  text-align: left;
+  /* button 默认不吃继承色，深色主题下会退回浏览器默认黑字 */
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.platform-card:hover:not(:disabled) {
+  border-color: #38bdf8;
+}
+
+/* 当前生效平台：与主题主色对齐（单执行端单选，ADR 0004） */
+.platform-card.active {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px #38bdf8 inset;
+}
+
+.platform-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.platform-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.platform-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* 云端 CI：自动执行说明与 GitHub 配置区 */
+.cloud-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* GitHub 卡片右上角配置标识：card 是 button，嵌套交互元素违规，用 span 承担点击 */
+.platform-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.platform-badge {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.platform-badge:hover {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.config-steps {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* 弹框内的配置状态行（原来是同步条里的行内 span） */
+.modal-body .config-status {
+  display: block;
+  margin: 10px 0 12px;
+  font-size: 12.5px;
+}
+
+.config-status.config-ok {
+  color: #4ade80;
+}
+
+.config-status.config-warn {
+  color: #f59e0b;
+}
+
+.config-status.config-fail {
+  color: #f87171;
+}
+
+/* 执行记录：间距由 .history-list 的 gap 负责，不再叠 margin */
 .history-item {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
-  background: var(--bg-recessed);
-  margin-bottom: 10px;
-}
-
-.history-head {
+  background: var(--bg-card);
+}.history-head {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1660,6 +1813,20 @@ input:checked + .slider:before {
 
 .history-row.ok .history-acct {
   color: #34d399;
+}
+
+/* 幂等跳过（今日已签，本轮无新领取）：区别于真签到，中性色 */
+.history-row.ok.skip .history-acct {
+  color: var(--text-secondary);
+}
+
+.history-skip-tag {
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .history-row.fail .history-acct {

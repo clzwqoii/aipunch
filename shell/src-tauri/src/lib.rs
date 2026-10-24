@@ -198,6 +198,8 @@ fn script_file(script: &str) -> Option<&'static str> {
     Some(match script {
         "checkin" => "cli.mjs",
         "ci-checkin" => "ci-checkin.mjs",
+        // 云端结果拉取（只读不触发）：启动/手动刷新同步「今日已签」状态（ADR 0004）
+        "ci-sync" => "ci-sync.mjs",
         "trae-extract" => "trae-extract.mjs",
         "trae-login" => "trae-login.mjs",
         "qoder-login" => "qoder-login.mjs",

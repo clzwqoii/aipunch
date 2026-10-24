@@ -18,6 +18,11 @@ interface AccountConfig {
 
 interface AppConfig {
   accounts: AccountConfig[];
+  // GitHub Actions 执行仓库（"owner/name"），ci-checkin/ci-sync 经 gh --repo 使用
+  repo?: string;
+  // 执行平台单选（ADR 0004）：'local'=内置引擎本地执行；'github-actions'=云端执行（默认，向后兼容）；
+  // 'cloudflare-workers' 为 P2 预留，UI 中禁用
+  platform?: string;
 }
 
 const PROVIDER_METAS: Record<
@@ -82,11 +87,15 @@ async function init() {
   setupWindowControls();
   setupTerminalControls();
   setupUpdaterControls();
+  setupCloudControls();
   renderInitialTerminalLogs();
   await setupEventListeners();
   await loadPrivacyMode();
   await setupProjectRoot();
   await loadConfigAndState();
+  // 启动静默同步 + 每 30 分钟拉一次云端结果（ADR 0004：定时 cron 的结果桌面端可见）
+  setTimeout(() => void runCiSync(true), 3000);
+  setInterval(() => void runCiSync(true), 30 * 60 * 1000);
 }
 
 // 0. 窗口控制：双击执行 Cocoa 原生平滑动画铺满/还原，mousedown 启动系统级原生拖拽
@@ -213,6 +222,8 @@ function syncStateTexts() {
   }
 
   renderStatusText();
+  renderPlatformCards();
+  renderSyncBar();
 }
 
 function renderStatusText() {
@@ -403,6 +414,7 @@ interface LastRunEntry {
   ok: boolean;
   message: string;
   balance: LastRunBalance | null;
+  skipped?: boolean; // 今日已签的幂等跳过（本轮无新领取），仍计入已签
 }
 
 let lastRunEntries: LastRunEntry[] = [];
@@ -455,6 +467,7 @@ async function loadLastRun(): Promise<void> {
   applyBalances();
   renderHistory();
   applyCredentialState();
+  renderSyncBar();
 }
 
 function formatBalance(b: LastRunBalance): string {
@@ -539,8 +552,10 @@ function renderHistory(): void {
     rows.className = "history-rows";
     for (const r of run.results ?? []) {
       const row = document.createElement("div");
-      row.className = `history-row ${r.ok ? "ok" : "fail"}`;
-      row.innerHTML = `<span class="history-acct">${escapeHtml(r.provider)}/${escapeHtml(r.account)}</span><span class="history-msg">${escapeHtml(r.message)}</span>`;
+      // ok+skipped=今日已签的幂等跳过（无新领取），与真签到区分展示
+      row.className = `history-row ${r.ok ? (r.skipped ? "ok skip" : "ok") : "fail"}`;
+      const skipTag = r.ok && r.skipped ? `<span class="history-skip-tag">⊘ ${escapeHtml(t("historySkipped"))}</span>` : "";
+      row.innerHTML = `<span class="history-acct">${escapeHtml(r.provider)}/${escapeHtml(r.account)}</span>${skipTag}<span class="history-msg">${escapeHtml(r.message)}</span>`;
       rows.appendChild(row);
     }
     item.appendChild(rows);
@@ -612,6 +627,8 @@ async function loadConfigAndState() {
     configuredEnvKeys = await invoke<string[]>("get_env_status", { keys: envKeys });
 
     renderProviderCards();
+    renderPlatformCards();
+    renderCloudConfig();
     void loadLastRun();
     void loadRuntimeInfo();
     updateActiveBadge();
@@ -707,14 +724,15 @@ function renderProviderCards() {
     });
   });
 
-  // 绑定单跑
+  // 绑定单跑（按当前平台分流：本地引擎 / 触发 CI）
   container.querySelectorAll<HTMLButtonElement>(".btn-icon-single").forEach((btn) => {
     btn.addEventListener("click", () => {
       const provider = btn.dataset.provider;
       const name = btn.dataset.name;
       if (!provider || !name) return;
-      appendTerminalLog(`[ACTION] 触发 CI 签到：${provider}/${name}...`);
-      void startRunner("ci-checkin", ["--provider", provider, "--account", name]);
+      const runner = activePlatform() === "local" ? "checkin" : "ci-checkin";
+      appendTerminalLog(`[ACTION] ${activePlatform() === "local" ? "本地" : "触发 CI"}签到：${provider}/${name}...`);
+      void startRunner(runner, ["--provider", provider, "--account", name]);
     });
   });
 
@@ -751,15 +769,19 @@ async function startRunner(
   scriptName: string,
   args: string[],
   env?: Record<string, string>,
+  opts?: { silent?: boolean },
 ): Promise<number> {
+  // 静默模式（后台同步）不与用户主动操作抢锁：有任务在跑就放弃，下次定时再试
   if (isRunning) {
-    appendTerminalLog("[WARN] 已有任务在运行，请等待结束后再试");
+    if (!opts?.silent) appendTerminalLog("[WARN] 已有任务在运行，请等待结束后再试");
     return -1;
   }
   isRunning = true;
   setRunButton(true);
-  document.getElementById("terminal-drawer")?.classList.remove("collapsed");
-  appendTerminalLog(`[RUNNER] Launching ${scriptName}...`);
+  if (!opts?.silent) {
+    document.getElementById("terminal-drawer")?.classList.remove("collapsed");
+    appendTerminalLog(`[RUNNER] Launching ${scriptName}...`);
+  }
 
   return new Promise<number>((resolve) => {
     runnerResolve = resolve;
@@ -774,13 +796,17 @@ async function startRunner(
 }
 
 function runCheckinAll() {
-  // 今日已全部签到：不再触发 CI，避免无意义的请求与风控
+  // 今日已全部签到：不再触发执行，避免无意义的请求与风控
   if (allDoneToday()) {
     appendTerminalLog("[跳过] 今日已全部签到，无需重复执行");
     return;
   }
-  // 签到统一在 CI 执行（单执行端，避免本地与 CI 轮换票互踢）
-  void startRunner("ci-checkin", []);
+  // 平台单选（ADR 0004）：本地模式走内置引擎（轮换票自动写回 .env），云端模式触发 CI（单执行端）
+  if (activePlatform() === "local") {
+    void startRunner("checkin", []);
+  } else {
+    void startRunner("ci-checkin", []);
+  }
 }
 
 function allDoneToday(): boolean {
@@ -790,6 +816,143 @@ function allDoneToday(): boolean {
   return enabled.every((a) =>
     lastRunEntries.some((r) => r.provider === a.provider && r.account === a.name && r.ok),
   );
+}
+
+// 9. 云端 CI：平台单选（ADR 0004）与拉取式同步
+function activePlatform(): "local" | "github-actions" {
+  return currentConfig.platform === "local" ? "local" : "github-actions";
+}
+
+function renderPlatformCards(): void {
+  const active = activePlatform();
+  document.querySelectorAll<HTMLButtonElement>("#cloud-platform-grid .platform-card").forEach((card) => {
+    card.classList.toggle("active", card.dataset.platform === active);
+  });
+}
+
+// GitHub Actions 配置状态：repo 是否已配置 + 最近一次「检查配置」结果（检查复用 ci-checkin --check）
+function renderCloudConfig(state?: "ok" | "fail"): void {
+  const el = document.getElementById("cloud-config-status");
+  if (!el) return;
+  el.classList.remove("config-ok", "config-warn", "config-fail");
+  const repo = currentConfig.repo?.trim();
+  if (!repo) {
+    el.textContent = t("cloudConfigRepoMissing");
+    el.classList.add("config-warn");
+    return;
+  }
+  if (state === "ok") {
+    el.textContent = t("cloudConfigOk", { repo });
+    el.classList.add("config-ok");
+  } else if (state === "fail") {
+    el.textContent = t("cloudConfigFail");
+    el.classList.add("config-fail");
+  } else {
+    el.textContent = t("cloudConfigRepoReady", { repo });
+    el.classList.add("config-warn");
+  }
+}
+
+let lastSyncAt: Date | null = null;
+
+// 同步状态条：最后同步时间 + 今日已签进度（合并本地与云端结果后的视图）
+function renderSyncBar(): void {
+  const el = document.getElementById("cloud-sync-status");
+  if (!el) return;
+  if (!lastSyncAt) {
+    el.textContent = t("cloudSyncNever");
+    return;
+  }
+  const enabled = currentConfig.accounts.filter((a) => a.enabled !== false);
+  const done = isTodayRun()
+    ? enabled.filter((a) => lastRunEntries.some((r) => r.provider === a.provider && r.account === a.name && r.ok)).length
+    : 0;
+  el.textContent = t("cloudSyncedAt", {
+    time: lastSyncAt.toLocaleString("zh-CN"),
+    done: String(done),
+    total: String(enabled.length),
+  });
+}
+
+// 拉取云端结果（只读不触发）；silent=启动/定时的后台同步，不展开终端、不抢执行锁
+async function runCiSync(silent: boolean): Promise<void> {
+  // 本地模式下没有云端事实源可拉取；Cloudflare Workers 走 KV，P2 接入
+  if (activePlatform() !== "github-actions") return;
+  const code = await startRunner("ci-sync", [], undefined, { silent });
+  if (code >= 0) {
+    lastSyncAt = new Date();
+    renderSyncBar();
+  }
+}
+
+function setupCloudControls(): void {
+  document.querySelectorAll<HTMLButtonElement>("#cloud-platform-grid .platform-card").forEach((card) => {
+    card.addEventListener("click", async () => {
+      const platform = card.dataset.platform;
+      if (!platform || platform === activePlatform() || platform === "cloudflare-workers") return;
+      currentConfig.platform = platform;
+      await saveCurrentConfig();
+      renderPlatformCards();
+      appendTerminalLog(`[CLOUD] ${platform === "local" ? t("cloudSwitchToLocal") : t("cloudSwitchToCloud")}`);
+      // 单执行端联动（ADR 0004）：切 local 停掉仓库定时 CI，切回云端恢复；
+      // gh 不可用时 runner 以非零退出并在终端提示手动处理，不阻塞切换本身
+      void startRunner("ci-checkin", [platform === "local" ? "--workflow-disable" : "--workflow-enable"]);
+    });
+  });
+
+  // 配置教程弹框：GitHub 卡片上的 ⚙ 标识（stopPropagation 避免触发平台切换）
+  const helpModal = document.getElementById("config-help-modal");
+  document.getElementById("cloud-config-open")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    renderCloudConfig();
+    helpModal?.classList.remove("hidden");
+  });
+  document.getElementById("btn-config-help-close")?.addEventListener("click", () => helpModal?.classList.add("hidden"));
+
+  document.getElementById("btn-cloud-refresh")?.addEventListener("click", () => {
+    if (activePlatform() !== "github-actions") {
+      appendTerminalLog("[CLOUD] 本地模式下没有云端结果可同步");
+      return;
+    }
+    void runCiSync(false);
+  });
+
+  // 定时窗口：小时 00-23 + 时区下拉，保存写 repo 变量（ci-checkin --set-schedule），
+  // workflow 每小时校验匹配才执行；localStorage 只记忆 UI 选择，事实源是 repo 变量（「检查配置」可读回）
+  const hourSelect = document.getElementById("schedule-hour") as HTMLSelectElement | null;
+  const tzSelect = document.getElementById("schedule-tz") as HTMLSelectElement | null;
+  if (hourSelect && !hourSelect.options.length) {
+    for (let h = 0; h < 24; h++) {
+      const value = String(h).padStart(2, "0");
+      hourSelect.add(new Option(`${value}:00`, value));
+    }
+    let saved: { hour?: string; tz?: string } | null = null;
+    try {
+      saved = JSON.parse(localStorage.getItem("aipunch_schedule") ?? "null");
+    } catch {
+      saved = null;
+    }
+    hourSelect.value = saved?.hour ?? "11";
+    if (tzSelect && saved?.tz) tzSelect.value = saved.tz;
+  }
+  document.getElementById("btn-schedule-save")?.addEventListener("click", () => {
+    const hour = hourSelect?.value;
+    const tz = tzSelect?.value;
+    if (!hour || !tz) return;
+    localStorage.setItem("aipunch_schedule", JSON.stringify({ hour, tz }));
+    void startRunner("ci-checkin", ["--set-schedule", hour, tz]);
+  });
+
+  // 可用性自检复用 ci-checkin --check（gh 版本/登录/仓库权限逐项验证，结果在终端展示）
+  document.getElementById("btn-cloud-check")?.addEventListener("click", async () => {
+    if (!currentConfig.repo?.trim()) {
+      renderCloudConfig();
+      appendTerminalLog(`[CLOUD] ${t("cloudConfigRepoMissing")}`);
+      return;
+    }
+    const code = await startRunner("ci-checkin", ["--check"]);
+    renderCloudConfig(code === 0 ? "ok" : "fail");
+  });
 }
 
 // 8. 隐私开关

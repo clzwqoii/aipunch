@@ -55,11 +55,11 @@
             <span class="badge badge-active" id="active-count-badge">5 已启用</span>
           </button>
 
-          <button class="nav-item" data-tab="history">
+          <button class="nav-item" data-tab="cloud">
             <svg class="nav-icon-svg" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z" clip-rule="evenodd" />
+              <path d="M5.5 16a3.5 3.5 0 01-.5-6.96 4.5 4.5 0 018.715-1.404A4 4 0 0115 16H5.5z" />
             </svg>
-            <span class="nav-label" data-i18n="navHistory">执行记录</span>
+            <span class="nav-label" data-i18n="navCloud">云端 CI</span>
           </button>
 
           <button class="nav-item" data-tab="credentials">
@@ -176,16 +176,83 @@
           </div>
         </section>
 
-        <!-- 标签页 2：运行历史 -->
-        <section id="tab-history" class="tab-pane">
+        <!-- 标签页 2：云端 CI（平台选择 / 同步状态 / 运行记录） -->
+        <section id="tab-cloud" class="tab-pane">
           <div class="pane-header">
             <div class="pane-header-main">
-              <h3 data-i18n="historyTitle">执行记录</h3>
-              <span class="text-muted" data-i18n="historySub">历史签到汇总、收益到账与耗时明细</span>
+              <h3 data-i18n="cloudTitle">云端 CI</h3>
+              <span class="text-muted" data-i18n="cloudSub">平台绑定、状态同步与运行记录（ADR 0004：单执行端单选）</span>
             </div>
           </div>
-          <div class="history-list" id="history-container">
-            <div class="empty-state" data-i18n="historyEmpty">暂无执行记录：点击「一键签到全部」或等待定时任务。</div>
+
+          <!-- 自动执行说明：云端定时由 workflow schedule 驱动，桌面端只做查看/触发/切换 -->
+          <p class="cloud-note" data-i18n="cloudAutoNote">云端 CI 由 GitHub Actions 按仓库 workflow 每日定时自动执行，无需启动本应用；本页用于切换执行端、查看状态与手动触发。</p>
+
+          <!-- 同步状态条：桌面端与云端签到状态双向跳过的入口 -->
+          <div class="cloud-sync-bar">
+            <span class="sync-status" id="cloud-sync-status">—</span>
+            <button id="btn-cloud-refresh" class="btn-secondary" data-i18n="cloudRefresh">立即刷新</button>
+          </div>
+
+          <!-- 平台选择：单选一枚举；本地=内置引擎本地执行（轮换票自动写回 .env），GitHub Actions=云端执行，Cloudflare Workers=P2 -->
+          <div class="section-block">
+            <div class="section-divider-header">
+              <div class="section-title-group">
+                <span class="section-dot"></span>
+                <h3 class="section-heading" data-i18n="cloudPlatformTitle">执行平台</h3>
+              </div>
+              <span class="section-sub" data-i18n="cloudPlatformSub">云端平台无需启动本应用也按时自动签到 · 凭证是单次轮换票，同一时间只能有一个执行端</span>
+            </div>
+            <div class="cloud-platform-grid" id="cloud-platform-grid">
+              <button class="platform-card" data-platform="local" id="platform-card-local">
+                <span class="platform-name" data-i18n="cloudPlatformLocal">本地执行</span>
+                <span class="platform-desc" data-i18n="cloudPlatformLocalDesc">内置引擎在本机签到，轮换票自动写回本地；app 不开则不签</span>
+              </button>
+              <button class="platform-card" data-platform="github-actions" id="platform-card-github">
+                <span class="platform-card-head">
+                  <span class="platform-name">GitHub Actions</span>
+                  <!-- card 本身是 button（嵌套交互元素违规），标识用 span + stopPropagation 打开配置教程弹框 -->
+                  <span class="platform-badge" id="cloud-config-open" data-i18n="cloudConfigBadge" title="配置流程教程">⚙ 配置</span>
+                </span>
+                <span class="platform-desc" data-i18n="cloudPlatformGithubDesc">云端定时+触发执行，结果经 ci-sync 拉取同步到本地</span>
+              </button>
+              <button class="platform-card" data-platform="cloudflare-workers" disabled>
+                <span class="platform-name">Cloudflare Workers</span>
+                <span class="platform-desc" data-i18n="cloudPlatformCfDesc">零仓库云端执行端（无需建仓库）——P2 提供</span>
+              </button>
+            </div>
+
+            <!-- 定时窗口：写 repo 变量（AIPUNCH_CHECKIN_HOUR/TZ），workflow 每小时校验匹配才执行；默认北京时间 11:00 -->
+            <div class="cloud-sync-bar">
+              <label class="schedule-label" for="schedule-hour">
+                <span data-i18n="cloudScheduleLabel">定时执行</span>
+                <select id="schedule-hour" class="schedule-select"></select>
+                <select id="schedule-tz" class="schedule-select">
+                  <option value="Asia/Shanghai" selected>Asia/Shanghai（UTC+8 中国）</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo（UTC+9 日本）</option>
+                  <option value="Asia/Dubai">Asia/Dubai（UTC+4）</option>
+                  <option value="Europe/London">Europe/London（UTC+0）</option>
+                  <option value="Europe/Berlin">Europe/Berlin（UTC+1）</option>
+                  <option value="America/New_York">America/New_York（UTC-5 美东）</option>
+                  <option value="America/Los_Angeles">America/Los_Angeles（UTC-8 美西）</option>
+                </select>
+              </label>
+              <button id="btn-schedule-save" class="btn-secondary" data-i18n="cloudScheduleSave">保存定时</button>
+            </div>
+          </div>
+
+          <!-- 运行记录：本地触发与云端定时运行统一在此（skipped=今日已签跳过） -->
+          <div class="section-block">
+            <div class="section-divider-header">
+              <div class="section-title-group">
+                <span class="section-dot"></span>
+                <h3 class="section-heading" data-i18n="historyTitle">执行记录</h3>
+              </div>
+              <span class="section-sub" data-i18n="historySub">历史签到汇总、收益到账与耗时明细</span>
+            </div>
+            <div class="history-list" id="history-container">
+              <div class="empty-state" data-i18n="historyEmpty">暂无执行记录：点击「一键签到全部」或等待定时任务。</div>
+            </div>
           </div>
         </section>
 
@@ -349,6 +416,30 @@
         <div class="modal-footer">
           <button id="btn-modal-cancel" class="btn-secondary" data-i18n="modalCancel">取消</button>
           <button id="btn-modal-confirm" class="btn-primary" data-i18n="modalConfirm">确认并执行</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗：GitHub Actions 配置教程（入口：云端 CI 页 GitHub 卡片上的 ⚙ 标识） -->
+    <div id="config-help-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h4 data-i18n="cloudConfigTitle">GitHub Actions 配置</h4>
+          <button id="btn-config-help-close" class="modal-close-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted" data-i18n="cloudConfigSub">云端执行端所需，配置一次即可</p>
+          <p class="config-status" id="cloud-config-status">—</p>
+          <ol class="config-steps">
+            <li data-i18n="cloudConfigStep1">GitHub 上 Fork 或使用本仓库，在 Settings → Secrets and variables → Actions 添加各平台 token 与 GH_PAT（轮换票回写用）</li>
+            <li data-i18n="cloudConfigStep2">启用 Actions：checkin.yml 每日定时自动签到，无需启动本应用，结果由本页「立即刷新」拉取</li>
+            <li data-i18n="cloudConfigStep3">本应用数据目录的 config.json 设置 "repo": "owner/name"（当前生效的执行仓库）</li>
+            <li data-i18n="cloudConfigStep4">本机安装 gh CLI 并运行 gh auth login（手动触发与同步需要；macOS：brew install gh）</li>
+            <li data-i18n="cloudConfigStep5">点击「检查配置」逐项验证（含仓库定时 CI 当前启停状态）</li>
+          </ol>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cloud-check" class="btn-primary" data-i18n="cloudConfigCheck">检查配置</button>
         </div>
       </div>
     </div>

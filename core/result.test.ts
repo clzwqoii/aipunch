@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractBalance } from './result.ts';
+import { extractBalance, toResultFile } from './result.ts';
+
+test('toResultFile 传递 skipped 标志（幂等跳过与真签到区分）', () => {
+  const file = toResultFile({
+    startedAt: '2026-10-24T03:00:00Z',
+    finishedAt: '2026-10-24T03:01:00Z',
+    total: 2,
+    succeeded: 2,
+    results: [
+      { account: 'a', provider: 'trae', ok: true, message: '今日已领取', durationMs: 1, skipped: true },
+      { account: 'b', provider: 'workbuddy', ok: true, message: '签到成功', durationMs: 2 },
+    ],
+  });
+  assert.equal(file.results[0].skipped, true);
+  assert.equal(file.results[1].skipped, undefined);
+});
 
 test('extractBalance 支持 WorkBuddy 的 balanceAfter', () => {
   assert.deepEqual(extractBalance({ balanceAfter: { remain: 1177, total: 1761 } }), { remain: 1177 });

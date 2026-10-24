@@ -100,6 +100,7 @@ test('claim 返回 9095 判定成功（今日已领取，幂等）', async () =>
   );
   const result = await trae.checkin(account, ctx);
   assert.equal(result.ok, true);
+  assert.equal(result.skipped, true, '9095 幂等已领应显式标记 skipped');
   assert.match(result.message, /已领取/);
 });
 
@@ -270,6 +271,7 @@ test('状态接口显示今日已签时不发 claim', async () => {
     );
     const result = await trae.checkin(account, ctx);
     assert.equal(result.ok, true);
+    assert.equal(result.skipped, true, '状态确认已签应显式标记 skipped');
     assert.match(result.message, /今日已领取/);
     assert.ok(!calls.some((u) => u.includes('/claim')), '已签时不应再调 claim');
   });

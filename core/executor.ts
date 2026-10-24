@@ -26,6 +26,7 @@ export async function runCheckins(
       message: result.message,
       durationMs: Date.now() - started,
       detail: result.detail,
+      skipped: result.skipped,
       rotatedRefreshToken: result.rotatedRefreshToken,
       refreshTokenEnv: account.refreshTokenEnv,
     };

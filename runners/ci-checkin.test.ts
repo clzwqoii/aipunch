@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkGh, configRepo, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun } from './ci-checkin.ts';
+import { checkGh, configRepo, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun, scheduleFromVars, scheduleVarArgs, workflowStateFromView, workflowToggleArgs } from './ci-checkin.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,50 @@ test('parseCiArgs 解析 provider/account 与 --check', () => {
   assert.deepEqual(parseCiArgs(['--provider', 'trae', '--account', 'main']), { provider: 'trae', account: 'main' });
   assert.deepEqual(parseCiArgs(['--check']), { check: true });
   assert.throws(() => parseCiArgs(['--provider']), /缺少值/);
+});
+
+test('parseCiArgs 解析 workflow 启停动作（平台切换联动仓库定时 CI）', () => {
+  assert.deepEqual(parseCiArgs(['--workflow-disable']), { workflowAction: 'disable' });
+  assert.deepEqual(parseCiArgs(['--workflow-enable']), { workflowAction: 'enable' });
+});
+
+test('parseCiArgs 解析 --set-schedule：小时归一为两位，时区可缺省，非法小时报错', () => {
+  assert.deepEqual(parseCiArgs(['--set-schedule', '11', 'Asia/Tokyo']), { scheduleHour: '11', scheduleTz: 'Asia/Tokyo' });
+  assert.deepEqual(parseCiArgs(['--set-schedule', '9']), { scheduleHour: '09', scheduleTz: 'Asia/Shanghai' });
+  assert.deepEqual(parseCiArgs(['--set-schedule', '09']), { scheduleHour: '09', scheduleTz: 'Asia/Shanghai' });
+  assert.throws(() => parseCiArgs(['--set-schedule', '25']), /0-23/);
+  assert.throws(() => parseCiArgs(['--set-schedule']), /缺少/);
+});
+
+test('scheduleVarArgs 生成 gh variable set 命令（小时+时区两条）', () => {
+  assert.deepEqual(scheduleVarArgs('09', 'Asia/Tokyo'), [
+    ['variable', 'set', 'AIPUNCH_CHECKIN_HOUR', '--body', '09'],
+    ['variable', 'set', 'AIPUNCH_CHECKIN_TZ', '--body', 'Asia/Tokyo'],
+  ]);
+});
+
+test('scheduleFromVars 从 variable list 读回定时，缺省回 11:00 Asia/Shanghai', () => {
+  assert.deepEqual(
+    scheduleFromVars([
+      { name: 'AIPUNCH_CHECKIN_HOUR', value: '09' },
+      { name: 'AIPUNCH_CHECKIN_TZ', value: 'Asia/Tokyo' },
+    ]),
+    { hour: '09', tz: 'Asia/Tokyo' },
+  );
+  assert.deepEqual(scheduleFromVars([{ name: 'OTHER', value: 'x' }]), { hour: '11', tz: 'Asia/Shanghai' });
+});
+
+test('workflowToggleArgs 生成 gh workflow enable/disable 命令', () => {
+  assert.deepEqual(workflowToggleArgs('disable', 'o/r'), ['workflow', 'disable', 'checkin.yml', '--repo', 'o/r']);
+  assert.deepEqual(workflowToggleArgs('enable', 'o/r'), ['workflow', 'enable', 'checkin.yml', '--repo', 'o/r']);
+});
+
+test('workflowStateFromView 从 workflow view --yaml 输出解析启停状态', () => {
+  const yaml = ['- name: checkin', '  id: 12345678', '  path: .github/workflows/checkin.yml', '  state: disabled'].join('\n');
+  assert.equal(workflowStateFromView(yaml), 'disabled');
+  assert.equal(workflowStateFromView('- state: active'), 'active');
+  // 输出缺失 state 时给可显示的兜底值，不抛错（检查路径不因此中断）
+  assert.equal(workflowStateFromView('no state here'), 'unknown');
 });
 
 test('checkGh 未安装时给出安装与登录指引', async () => {
@@ -100,7 +144,7 @@ test('configRepo 从 config.json 读取 repo', () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('mergeRunResults 过滤运行保留其余账号，完整运行整体替换', () => {
+test('mergeRunResults 过滤运行保留其余账号，完整运行整体替换，runId/runUrl 透传', () => {
   const entry = (provider: string, ok: boolean) => ({ provider, account: 'main', ok, message: '', balance: null });
   const prev = {
     finishedAt: '2026-10-24T03:00:00Z',
@@ -108,11 +152,12 @@ test('mergeRunResults 过滤运行保留其余账号，完整运行整体替换'
     succeeded: 2,
     results: [entry('a', true), entry('b', true)],
   };
-  const next = { finishedAt: '2026-10-24T04:00:00Z', total: 1, succeeded: 1, results: [entry('a', true)] };
+  const next = { finishedAt: '2026-10-24T04:00:00Z', total: 1, succeeded: 1, runId: 42, runUrl: 'https://run/42', results: [entry('a', true)] };
   const merged = mergeRunResults(prev, next, true);
   assert.equal(merged.total, 2);
   assert.equal(merged.results.length, 2);
-  assert.equal(merged.runUrl, undefined);
+  assert.equal(merged.runId, 42, '合并结果带上 runId 供 ci-sync 防重复同步');
+  assert.equal(merged.runUrl, 'https://run/42');
   const replaced = mergeRunResults(prev, next, false);
   assert.equal(replaced.total, 1);
   assert.equal(replaced.results.length, 1);

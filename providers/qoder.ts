@@ -219,6 +219,7 @@ export const qoder: Provider = {
       return {
         ok: true,
         message: `${alreadyClaimed ? '今日已领取（服务端幂等跳过）' : '暂无可领取的签到活动（未开放或已结束）'}${usageSuffix}`,
+        skipped: alreadyClaimed || undefined,
         detail: { status: res.status, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };

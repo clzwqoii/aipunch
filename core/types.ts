@@ -22,6 +22,7 @@ export interface CheckinResult {
   ok: boolean;
   message: string;
   detail?: unknown; // 原始响应，便于排查
+  skipped?: boolean; // 今日已签的幂等跳过（状态确认或服务端幂等码），仍计成功；与真签到区分供桌面端展示
   rotatedRefreshToken?: string; // 服务端轮换后的新 refreshToken（需要时回写 Secret）
 }
 
@@ -43,6 +44,7 @@ export interface AccountResult {
   message: string;
   durationMs: number;
   detail?: unknown;
+  skipped?: boolean; // 幂等跳过（今日已签），透传自 CheckinResult
   rotatedRefreshToken?: string;
   refreshTokenEnv?: string;
 }

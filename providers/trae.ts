@@ -209,6 +209,7 @@ export const trae: Provider = {
       return {
         ok: true,
         message: `今日已领取（状态确认）${usageText(usage)}`,
+        skipped: true,
         detail: { status: 'checked_in', usage, rotatedRefreshToken },
         rotatedRefreshToken,
       };
@@ -252,7 +253,7 @@ export const trae: Provider = {
       return { ok: true, message: `签到成功${credits}${usageText(usage)}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (code === 9095 || ALREADY_HINTS.test(message)) {
-      return { ok: true, message: `今日已领取（服务端幂等跳过）${usageText(usage)}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `今日已领取（服务端幂等跳过）${usageText(usage)}`, skipped: true, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (code === 9074 || res.status === 429 || res.status >= 500 || CONGESTION_HINTS.test(message)) {
       // 9074 真因是设备指纹不完整（缺 machine-id/uid/app-id 等头），且积分未到账——判失败下轮重试

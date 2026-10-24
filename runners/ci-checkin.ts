@@ -17,11 +17,28 @@ export interface CiArgs {
   provider?: string;
   account?: string;
   check?: boolean;
+  // 平台切换联动（ADR 0004 单执行端）：local 时停掉仓库定时 CI，github-actions 时恢复
+  workflowAction?: 'enable' | 'disable';
+  // 定时窗口（workflow 每小时校验 repo 变量后执行）：小时两位 00-23，时区 IANA 名
+  scheduleHour?: string;
+  scheduleTz?: string;
 }
 
 export function parseCiArgs(argv: string[]): CiArgs {
   const out: CiArgs = {};
   if (argv.includes('--check')) out.check = true;
+  if (argv.includes('--workflow-disable')) out.workflowAction = 'disable';
+  if (argv.includes('--workflow-enable')) out.workflowAction = 'enable';
+  const schedIdx = argv.indexOf('--set-schedule');
+  if (schedIdx !== -1) {
+    const raw = argv[schedIdx + 1]?.trim();
+    if (!raw || raw.startsWith('--')) throw new Error('--set-schedule 后缺少小时（0-23）');
+    if (!/^(?:[01]?\d|2[0-3])$/.test(raw)) throw new Error('--set-schedule 小时须为 0-23');
+    // 归一为两位（与 gate 侧 date +%H 的带零输出一致，避免 '9'≠'09' 永不匹配）
+    out.scheduleHour = String(Number(raw)).padStart(2, '0');
+    const tz = argv[schedIdx + 2]?.trim();
+    out.scheduleTz = tz && !tz.startsWith('--') ? tz : 'Asia/Shanghai';
+  }
   for (const flag of ['provider', 'account'] as const) {
     const idx = argv.indexOf(`--${flag}`);
     if (idx === -1) continue;
@@ -86,6 +103,29 @@ export function dispatchArgs(args: CiArgs, repo: string): string[] {
   return out;
 }
 
+export function workflowToggleArgs(action: 'enable' | 'disable', repo: string): string[] {
+  return ['workflow', action, WORKFLOW, '--repo', repo];
+}
+
+// `gh workflow view checkin.yml --yaml` 的输出形如 "- name: ...\n  state: active|disabled\n"
+export function workflowStateFromView(yaml: string): string {
+  return /^\s*-?\s*state:\s*(\w+)\s*$/m.exec(yaml)?.[1] ?? 'unknown';
+}
+
+// 定时窗口写 repo 变量：workflow 每小时整点跑，gate 比对变量后才真正执行
+export function scheduleVarArgs(hour: string, tz: string): string[][] {
+  return [
+    ['variable', 'set', 'AIPUNCH_CHECKIN_HOUR', '--body', hour],
+    ['variable', 'set', 'AIPUNCH_CHECKIN_TZ', '--body', tz],
+  ];
+}
+
+export function scheduleFromVars(vars: Array<{ name: string; value: string }>): { hour: string; tz: string } {
+  const read = (name: string): string | undefined =>
+    vars.find((v) => v.name === name && v.value.trim())?.value.trim();
+  return { hour: read('AIPUNCH_CHECKIN_HOUR') ?? '11', tz: read('AIPUNCH_CHECKIN_TZ') ?? 'Asia/Shanghai' };
+}
+
 interface RunSummary {
   databaseId: number;
   event: string;
@@ -115,7 +155,8 @@ export function exitCodeFor(conclusion: string | null | undefined): number {
   return conclusion === 'success' ? 0 : 1;
 }
 
-function gh(args: string[]): Promise<string> {
+// gh CLI 封装：ci-sync 复用同一执行通道（超时与错误包装保持一致）
+export function gh(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('gh', args, { timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
@@ -187,8 +228,35 @@ async function main(): Promise<void> {
   const repo = configRepo();
   currentRepo = repo;
   const info = await checkGh(gh, repo);
+  if (args.workflowAction) {
+    await gh(workflowToggleArgs(args.workflowAction, repo));
+    console.log(`[CI] 已${args.workflowAction === 'disable' ? '禁用' : '启用'}仓库签到 workflow（${info.repo} · ${WORKFLOW}）`);
+    return;
+  }
+  if (args.scheduleHour !== undefined) {
+    for (const cmd of scheduleVarArgs(args.scheduleHour, args.scheduleTz ?? 'Asia/Shanghai')) await gh(cmd);
+    console.log(`[CI] 定时已设为 ${args.scheduleTz ?? 'Asia/Shanghai'} ${args.scheduleHour}:00（workflow 每小时校验，匹配才执行）`);
+    return;
+  }
   if (args.check) {
-    console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录`);
+    let state = 'unknown';
+    try {
+      state = workflowStateFromView(await gh(['workflow', 'view', WORKFLOW, '--repo', repo, '--yaml']));
+    } catch {
+      /* workflow 尚未出现在 Actions 列表等场景不阻塞环境检查 */
+    }
+    let schedule = '';
+    try {
+      const vars = JSON.parse(await gh(['variable', 'list', '--repo', repo, '--json', 'name,value'])) as Array<
+        { name: string; value: string }
+      >;
+      const s = scheduleFromVars(vars);
+      schedule = ` · 定时 ${s.tz} ${s.hour}:00`;
+    } catch {
+      /* 变量不可读不阻塞环境检查 */
+    }
+    const stateLabel = state === 'active' ? '定时运行中' : state.startsWith('disabled') ? '已禁用（云端不执行）' : '状态未知';
+    console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录 · ${stateLabel}${schedule}`);
     return;
   }
   const since = Date.now() - 60_000; // 容忍时钟偏差
@@ -210,6 +278,7 @@ export function mergeRunResults(prev: ResultFile | null, entry: ResultFile, filt
   for (const r of entry.results ?? []) map.set(`${r.provider}/${r.account}`, r);
   const results = [...map.values()];
   return {
+    runId: entry.runId,
     finishedAt: entry.finishedAt,
     runUrl: entry.runUrl,
     total: results.length,
@@ -224,7 +293,7 @@ async function saveLastRun(runId: number, runUrl: string | undefined, filtered: 
   try {
     await gh(['run', 'download', String(runId), '--repo', currentRepo, '-n', 'checkin-result', '-D', dir]);
     const data = JSON.parse(readFileSync(join(dir, 'checkin-result.json'), 'utf8')) as ResultFile;
-    const entry = { ...data, runUrl };
+    const entry = { ...data, runId, runUrl };
     // 单账号/单平台运行只覆盖对应账号，其余账号保留上一次结果（卡片与「今日签到」总数不丢）
     const lastPath = join(process.cwd(), '.aipunch-last-run.json');
     let prev: ResultFile | null = null;

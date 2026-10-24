@@ -30,6 +30,7 @@ test('code=10001 今日已签到也判定成功（幂等）', async () => {
   );
   const result = await workbuddy.checkin(account, ctx);
   assert.equal(result.ok, true);
+  assert.equal(result.skipped, true, '幂等已签应显式标记 skipped');
   assert.match(result.message, /已签到/);
 });
 

@@ -136,6 +136,7 @@ test('CONFIRMED 判定今日已签到，不调 claim/confirm', async () => {
     );
     const result = await codearts.checkin(account, ctx);
     assert.equal(result.ok, true);
+    assert.equal(result.skipped, true, 'CONFIRMED 状态确认已签应显式标记 skipped');
     assert.match(result.message, /已签到/);
     assert.equal(claimCalled, false);
   });
