@@ -4,12 +4,17 @@
 
 ## 本轮焦点
 
-- P1 已代码完成待手测：按手测路径验证「云端 CI」菜单，通过后提交并开 P2（Cloudflare Workers 全链路）
+- P1 已提交上线（80915df）并实测验证：dispatch 运行 #40077506929 gate 输出「手动触发，不校验时间窗口」、签到 5/5 成功，workflow 新语法在 GitHub 合法。下一步 P2（Cloudflare Workers 全链路）。
 
 ## 进行中
 
+### P2 Cloudflare Workers 全链路（待开工）
+- 状态：下一步
+- 范围：worker 打包入口、存储抽象、部署 UI、KV 拉取合并进 runCiSync（ADR 0004 的 cloudflare-workers 平台）
+- 建议技能：`tdd`（入口/存储抽象与 adapter 改动先写失败测试，providers 业务代码不动）；`ponytail`（复用 ci-sync/mergeRunResults，不提前抽象多平台层）
+
 ### P1 云端 CI 菜单与状态同步（ADR 0004）
-- 状态：代码完成，待桌面端手测（工作区未提交）
+- 状态：✅ 已提交上线（80915df，2026-10-24）；四轮手测反馈修完，207/207 绿
 - 决策口径：平台单选（local / cloudflare-workers(P2) / github-actions，可零选）；同步=拉取式（ci-sync 拉最新完成运行合并）；providers 幂等路径显式 skipped；原「执行记录」tab 并入新菜单后移除；CF Workers 为 P2（worker 自我回写轮换票、立即执行=临时改 cron）。
 - 已完成与验证：
   - skipped 显式化：CheckinResult/AccountResult/ResultEntry 全链透传；五家 provider 七处幂等分支标 skipped，autoclaw「真签到无奖励」守恒测试防误标（TDD，201/201 绿）
