@@ -9,7 +9,14 @@
 ## 进行中
 
 ### P2 Cloudflare Workers 全链路（ADR 0004）
-- 状态：代码完成（2026-10-24），226/226 绿 + 双 tsc + cargo check + build:engine（11 bundles 含 worker.mjs/cf-deploy.mjs）+ 浏览器冒烟；**待真实 CF 账号部署实测**
+- 状态：✅ **全链路收官（2026-10-24 深夜）**——CF worker 真实执行 **5/5 成功**（workbuddy/trae/qoder/codearts/autoclaw-intl），结果经 ci-sync 同步回桌面；**CodeArts DPoP 在免费版 10ms CPU 内完成**（ADR 0004 最大技术疑虑解除）；定时 Asia/Shanghai 11:00 每日自动执行
+- 实测沉淀的关键事实：
+  - CF Secrets 更新后**旧 isolate 仍持旧值数分钟**：部署新凭证后首轮触发仍 401/400，再等几分钟二轮即过（8c08206 注记）。桌面端如遇「部署后签到仍失败」，等几分钟再点一次即可
+  - CF cron 调度有分钟级延迟：trigger-now 用每分钟 cron + result/error 双终态
+  - providers 辅助凭证（DPOP_KEY 等 14 键）必须随部署上传（nodejs_compat 注入 process.env）
+  - Trae「本地解密」链与客户端共享会话：签到轮换会作废客户端登录态；UI 已加「浏览器授权（独立会话）」向导卡（8c08206），推荐用户切到该链
+  - 撞执行锁的 WARN 原本在收起终端里不可见（「点击无反应」的根因之一），现自动展开终端
+- 剩余（P3 候选）：GitHub Actions PAT 化摆脱 gh CLI；受限 token 生成器替代直通管理 Token
 - 已落地分层：
   - `cloudflare/worker.ts`：scheduled 入口（KV 读 config → resolveAccounts(注入 env) → runCheckins → 结果写 KV `result` → 轮换票 CF API 自回写 Secrets，KV 不落敏感 token）；打包产物零 node:fs、仅 node:crypto（nodejs_compat）
   - `cloudflare/cf-api.ts`：REST 封装（cronHourFor 换算在 ci-checkin）——ensureKvNamespace 幂等、deployWorkerRequest multipart（KV 绑定+CF_* Secret 占位+cron）、putSecret/putSchedules/putKvValue、readKvValue、runRequest 信封解析
