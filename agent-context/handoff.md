@@ -16,7 +16,8 @@
   - `runners/ci-sync.ts`：platformFromConfig 分流，CF 平台走 mainKv（planKvSync：无结果/已同步/不新/放行四态，合并复用 mergeRunResults）
   - `runners/cf-deploy.ts`：--token/--account（env 兜底）代部署全流程（KV→config→worker→Secrets→.env 回写 CF_ACCOUNT_ID/API_TOKEN/KV_NAMESPACE）；`--trigger-now`=临时 cron 下一分钟→轮询 KV result→恢复；`--cron-only`=只改定时
   - 桌面端：CF 卡解禁+⚙ 部署弹框（token/account 表单，定时沿用定时行值）；activePlatform 三态；一键签到 CF 分流 --trigger-now；切 CF 时 GitHub workflow 自动 disable；「保存定时」CF 分流 --cron-only
-- 实测进度：**部署链路已实测成功**（2026-10-24 用户真实 Token：`[CF] 部署完成：worker aipunch-checkin · KV aipunch`，凭证与 CF_* 已入 Secrets/.env）；待测：切 CF 平台 → 「一键签到」（--trigger-now 临时 cron）→ KV result 同步回桌面 → 次日定时；CPU 10ms 限制下 CodeArts DPoP 等路径实测再放行（ADR 0004）
+- 实测进度（2026-10-24 深夜全链路）：**部署一键幂等已真实验证**——worker 上传成功、二跑按指纹跳过上传、cron 5 字段通过、Secrets/KV/凭证写回全通，数据目录 ci-sync 输出「KV 暂无结果」（待首跑）。实测暴露并修复四个 CF API 兼容点：multipart 不声明 secret_text、module MIME 需 application/javascript+module、cron 为 5 字段、脚本须先于 Secrets/Schedules 上传（7250940）
+- 待最后验证：「一键签到」（trigger-now 首轮）→ 五账号结果（CodeArts 10ms CPU）→ KV 同步回卡片
 - UX 反馈修复（部署状态反馈）：部署弹框点「部署」后按钮禁用变「部署中…」、弹框保持，退出码成功才显示「✓ 部署成功」并 1.5s 后关闭、失败留在弹框内可重试；平台卡新增配置状态行（CF=.env CF_KV_NAMESPACE 判定「● 已部署」绿；GitHub=config.repo 判定「● 已配置仓库」）
 - 关联（2533c84）：云端 CI 页新增网络状态行（GitHub/Cloudflare API 域可达性 chip，启动 5s 自查 + 手动「网络检查」，netcheck runner 输出 [NET] 行单点解析）——国内可达性是平台选型依据（ADR 0003）；两平台弹框均含一键打开 Fork/令牌创建页
 - 修订：
