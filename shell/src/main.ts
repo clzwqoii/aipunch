@@ -810,7 +810,11 @@ async function startRunner(
 ): Promise<number> {
   // 静默模式（后台同步）不与用户主动操作抢锁：有任务在跑就放弃，下次定时再试
   if (isRunning) {
-    if (!opts?.silent) appendTerminalLog("[WARN] 已有任务在运行，请等待结束后再试");
+    if (!opts?.silent) {
+      // 撞执行锁：把 WARN 送到用户眼前（终端收起时根本看不到，表现为「点了没反应」）
+      document.getElementById("terminal-drawer")?.classList.remove("collapsed");
+      appendTerminalLog("[WARN] 已有任务在运行，请等待结束后再试（启动后的自动同步会占用几秒）");
+    }
     return -1;
   }
   isRunning = true;
@@ -1377,6 +1381,18 @@ function getProviderSpecificWizardHtml(provider: string): string {
         </div>
       </div>
     `;
+  } else if (provider === "trae") {
+    return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${getCurrentLang() === "zh" ? "🌐 浏览器授权（推荐 · 独立会话）" : "🌐 Browser Auth (recommended · isolated session)"}</span>
+        </div>
+        <p class="auth-option-desc">${getCurrentLang() === "zh" ? "打开 Trae 官方授权页登录，签发独立会话与设备号；与桌面客户端互不影响。" : "Opens the Trae authorize page and issues an isolated session & device ID; does not affect the desktop client."}</p>
+        <div class="auth-option-action">
+          <button id="btn-run-trae-login" class="btn-primary" style="flex: 1;">${getCurrentLang() === "zh" ? "启动浏览器授权" : "Start Browser Auth"}</button>
+        </div>
+      </div>
+    `;
   } else if (provider === "autoclaw-intl") {
     return `
       <div class="auth-option-card">
@@ -1424,6 +1440,11 @@ function bindProviderSpecificEvents(provider: string) {
     document.getElementById("btn-run-codearts-oauth")?.addEventListener("click", () => {
       closeModal();
       startRunner("codearts-login", []);
+    });
+  } else if (provider === "trae") {
+    document.getElementById("btn-run-trae-login")?.addEventListener("click", () => {
+      closeModal();
+      startRunner("trae-login", []);
     });
   } else if (provider === "autoclaw-intl") {
     document.getElementById("btn-run-autoclaw-intl")?.addEventListener("click", () => {
