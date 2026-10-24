@@ -622,7 +622,7 @@ function applyDoneState(): void {
     }
   });
 
-  const allDone = allDoneToday();
+  const allDone = allDoneToday() && activePlatform() !== "cloudflare-workers";
   const btnRunAll = document.getElementById("btn-run-all") as HTMLButtonElement | null;
   const btnRunAllText = document.getElementById("btn-run-all-text");
   if (btnRunAll && !isRunning) {
@@ -829,8 +829,9 @@ async function startRunner(
 }
 
 function runCheckinAll() {
-  // 今日已全部签到：不再触发执行，避免无意义的请求与风控
-  if (allDoneToday()) {
+  // 今日已全部签到：不再触发执行，避免无意义的请求与风控。
+  // CF 平台例外放行：worker 可能从未跑过（KV 无结果），首跑验证依赖手动触发；providers 幂等跳过，重复安全
+  if (allDoneToday() && activePlatform() !== "cloudflare-workers") {
     appendTerminalLog("[跳过] 今日已全部签到，无需重复执行");
     return;
   }
@@ -947,6 +948,9 @@ function setupCloudControls(): void {
       appendTerminalLog(`[CLOUD] ${t(switchKey)}`);
       // 单执行端联动（ADR 0004）：只有 github-actions 平台保留仓库定时 CI，切走（local/CF）即停
       void startRunner("ci-checkin", [platform === "github-actions" ? "--workflow-enable" : "--workflow-disable"]);
+      // 切平台即自动同步新平台结果 + 复查网络可达性（不需要手动按钮）
+      void runCiSync(false);
+      void startRunner("netcheck", [], undefined, { silent: true });
     });
   });
 
@@ -966,6 +970,8 @@ function setupCloudControls(): void {
     title.textContent = state === "warn" ? t("cfResultMissing") : t(key);
     descEl.textContent = desc ?? (state === "running" ? t("cfResultRunningDesc") : state === "ok" ? t("cfResultOkDesc") : t("cfResultFailDesc"));
     descEl.hidden = !descEl.textContent;
+    // 弹框内容可能已被滚到底部：横幅在顶部，出现时滚回去让用户看见
+    box.closest(".modal-body")?.scrollTo({ top: 0 });
   };
   document.getElementById("cf-deploy-open")?.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -979,6 +985,29 @@ function setupCloudControls(): void {
     void invoke("open_external", { target: "https://dash.cloudflare.com/profile/api-tokens" });
   });
   document.getElementById("btn-cf-deploy-close")?.addEventListener("click", () => cfModal?.classList.add("hidden"));
+  // 仅保存凭证：已部署但 .env 回写丢失/换机场景——查现有 KV id 并落盘，不重新上传（无频控）
+  document.getElementById("btn-cf-creds-only")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btn-cf-creds-only") as HTMLButtonElement | null;
+    const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();
+    const account = (document.getElementById("cf-account-input") as HTMLInputElement | null)?.value.trim();
+    if (!token || !account) {
+      showCfResult("warn");
+      return;
+    }
+    lastCfError = "";
+    if (btn) btn.disabled = true;
+    showCfResult("running");
+    const code = await startRunner("cf-deploy", ["--creds-only", "--token", token, "--account", account]);
+    if (btn) btn.disabled = false;
+    if (code === 0) {
+      showCfResult("ok", t("cfResultCredsOkDesc"));
+      await loadConfigAndState();
+      setTimeout(() => cfModal?.classList.add("hidden"), 2000);
+    } else {
+      showCfResult("fail", lastCfError || undefined);
+    }
+  });
+
   // 部署按钮生命周期：部署中禁用并保持弹框 → 按退出码给结果；成功才关闭并刷新卡片状态，失败留在弹框内修正重试
   document.getElementById("btn-cf-deploy-run")?.addEventListener("click", async () => {
     const runBtn = document.getElementById("btn-cf-deploy-run") as HTMLButtonElement | null;
@@ -1028,18 +1057,7 @@ function setupCloudControls(): void {
     void invoke("open_external", { target: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=AIPunch" });
   });
 
-  document.getElementById("btn-cloud-refresh")?.addEventListener("click", () => {
-    if (activePlatform() === "local") {
-      appendTerminalLog("[CLOUD] 本地模式下没有云端结果可同步");
-      return;
-    }
-    void runCiSync(false);
-  });
-
-  // 云端平台可达性（GitHub / Cloudflare API 域）：结果同时展示在网络状态行与终端
-  document.getElementById("btn-netcheck")?.addEventListener("click", () => {
-    void startRunner("netcheck", []);
-  });
+  // 同步与网络检查已自动化（启动/定时/切平台触发），无手动按钮
 
   // 定时窗口：小时 00-23 + 时区下拉，保存后 ci-checkin --set-schedule 自动把仓库 workflow 的
   // cron 改成对应 UTC 整点（每天只真跑一次）；localStorage 只记忆 UI 选择，事实源是 cron

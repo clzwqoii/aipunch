@@ -5,6 +5,12 @@
 //   npm run cf-deploy -- --trigger-now   # 立即执行：临时把 cron 改到下一分钟，KV 出结果后恢复（workers.dev 国内被墙不走 HTTP）
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
+// 数据目录定位：Rust 注入的 AIPUNCH_WORK_DIR 是唯一事实源；直接终端跑时回退 cwd
+// （此前按 process.cwd() 定位 .env，dev/安装模式下 cwd 错位导致 CF 配置回写丢失）
+export function workDirRoot(): string {
+  return process.env.AIPUNCH_WORK_DIR ?? process.cwd();
+}
 import type { ConfigFile } from '../core/config.ts';
 import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
 import { cronHourFor } from './ci-checkin.ts';
@@ -29,6 +35,7 @@ export interface DeployArgs {
   hour: string; // 两位 00-23
   tz: string;
   cronOnly: boolean; // 只更新 cron 触发器（CF 平台的「保存定时」）
+  credsOnly: boolean; // 只保存凭证到 .env（已部署但回写丢失/换机场景；不重新上传脚本，无频控）
   triggerNow: boolean;
 }
 
@@ -56,6 +63,7 @@ export function parseDeployArgs(
     hour: String(Number(hourRaw)).padStart(2, '0'),
     tz: value('tz') ?? 'Asia/Shanghai',
     cronOnly: argv.includes('--cron-only'),
+    credsOnly: argv.includes('--creds-only'),
     triggerNow: argv.includes('--trigger-now'),
   };
 }
@@ -131,6 +139,19 @@ async function main(): Promise<void> {
   const args = parseDeployArgs(process.argv.slice(2), process.env);
   if (args.triggerNow) return triggerNow(args);
   const cron = dailyCron(cronHourFor(args.hour, args.tz));
+  if (args.credsOnly) {
+    // 只保存凭证：查现有 KV namespace（已存在则纯读，不创建不上传，无频控），写回 .env
+    const nsId = await ensureKvNamespace(fetch, args.account, args.token, KV_TITLE);
+    const envFile = join(workDirRoot(), '.env');
+    setEnvValue(envFile, 'CF_ACCOUNT_ID', args.account);
+    setEnvValue(envFile, 'CF_API_TOKEN', args.token);
+    setEnvValue(envFile, 'CF_KV_NAMESPACE', nsId);
+    if (!readFileSync(envFile, 'utf8').includes(`CF_KV_NAMESPACE=${nsId}`)) {
+      throw new Error('凭证写回 .env 未生效，请检查数据目录可写');
+    }
+    console.log('[CF] 凭证已保存到本机 .env（worker 与部署保持现状，未重新上传）');
+    return;
+  }
   if (args.cronOnly) {
     // CF 平台的「保存定时」：只改 cron 触发器
     await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [cron]));
@@ -138,7 +159,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const config = JSON.parse(readFileSync(join(process.cwd(), 'config.json'), 'utf8')) as ConfigFile;
+  const root = workDirRoot();
+  const config = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8')) as ConfigFile;
   const plan = buildDeployPlan(config, process.env, args);
   const scriptIdx = process.argv.indexOf('--script');
   const code = readFileSync(
@@ -152,11 +174,14 @@ async function main(): Promise<void> {
   for (const secret of plan.secrets) {
     await runRequest(fetch, putSecretRequest(args.account, args.token, SCRIPT, secret.name, secret.value));
   }
-  // 部署元信息写回 .env：ci-sync 的 KV 分支与 --trigger-now 都从这里读
-  const envFile = join(process.cwd(), '.env');
+  // 部署元信息写回 .env：ci-sync 的 KV 分支与 --trigger-now 都从这里读；写回后自检防静默丢失
+  const envFile = join(workDirRoot(), '.env');
   setEnvValue(envFile, 'CF_ACCOUNT_ID', args.account);
   setEnvValue(envFile, 'CF_API_TOKEN', args.token);
   setEnvValue(envFile, 'CF_KV_NAMESPACE', nsId);
+  if (!readFileSync(envFile, 'utf8').includes(`CF_KV_NAMESPACE=${nsId}`)) {
+    console.log(`[CF] 警告：CF 配置回写 .env 未生效（${envFile}），「立即刷新」同步将报配置不完整`);
+  }
   console.log(`[CF] 部署完成：worker ${SCRIPT} · KV ${KV_TITLE}（${nsId.slice(0, 8)}…）`);
   console.log(`[CF] 定时 ${args.tz} ${args.hour}:00（cron ${plan.crons[0]} UTC）；凭证已入 Secrets，轮换票由 worker 自动回写`);
 }

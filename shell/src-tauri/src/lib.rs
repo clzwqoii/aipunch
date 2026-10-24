@@ -384,6 +384,11 @@ fn run_script_stream(
     let engine = bundled_engine_root(&app);
     let slot = state.0.clone();
 
+    // 工作目录显式注入子进程：runner 读写 .env/config 不依赖 cwd 假设
+    // （此前 cf-deploy 按 process.cwd() 定位 .env，dev/安装模式下 cwd 错位导致 CF 配置回写丢失）
+    let mut env_workdir = std::collections::HashMap::new();
+    env_workdir.insert("AIPUNCH_WORK_DIR".to_string(), root.display().to_string());
+
     // 内置引擎：直接跑 Resources 里的 node + 打包脚本；开发模式回退到仓库 + npm
     let mut cmd = if let Some(engine) = &engine {
         let node = engine.join(if cfg!(windows) { "node.exe" } else { "node" });
@@ -409,10 +414,11 @@ fn run_script_stream(
             cmd.arg(arg);
         }
     }
-    // 凭据走环境变量而不是命令行参数，避免出现在 ps 的命令行里
+    // 凭据走环境变量而不是命令行参数，避免出现在 ps 的命令行里；工作目录注入对全部 runner 生效
     if let Some(env) = env {
-        cmd.envs(env);
+        env_workdir.extend(env);
     }
+    cmd.envs(env_workdir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
     // 独立进程组：停止时能连 npm 派生的 node/tsx 一起杀掉

@@ -88,7 +88,7 @@ async function mainKv(): Promise<void> {
     return;
   }
   const raw = await readKvValue(fetch, accountId, token, nsId, 'result');
-  const cwd = process.cwd();
+  const cwd = process.env.AIPUNCH_WORK_DIR ?? process.cwd();
   const prev = readJson<ResultFile | null>(join(cwd, '.aipunch-last-run.json'), null);
   const history = readJson<ResultFile[]>(join(cwd, '.aipunch-runs.json'), []);
   const plan = planKvSync(raw, prev, history);
@@ -102,10 +102,12 @@ async function mainKv(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  // CF 分支的 CF_* 配置在 .env（部署时写回）：与 cli/cf-deploy 同款，先注入再读
-  loadDotEnv();
-  if (platformFromConfig() === 'cloudflare-workers') return mainKv();
-  const repo = configRepo();
+  // CF 分支的 CF_* 配置在数据目录 .env（部署时写回）：loadDotEnv 定位与 cf-deploy 的回写
+  // 用同一事实源（AIPUNCH_WORK_DIR，Rust 注入），避免 cwd 错位读写不同文件
+  const root = process.env.AIPUNCH_WORK_DIR ?? process.cwd();
+  loadDotEnv(root);
+  if (platformFromConfig(root) === 'cloudflare-workers') return mainKv();
+  const repo = configRepo(root);
   await checkGh(gh, repo);
   const raw = await gh([
     'run',
@@ -124,7 +126,7 @@ async function main(): Promise<void> {
     console.log('[SYNC] 云端暂无已完成的运行');
     return;
   }
-  const cwd = process.cwd();
+  const cwd = process.env.AIPUNCH_WORK_DIR ?? process.cwd();
   const lastPath = join(cwd, '.aipunch-last-run.json');
   const historyPath = join(cwd, '.aipunch-runs.json');
   const prev = readJson<ResultFile | null>(lastPath, null);

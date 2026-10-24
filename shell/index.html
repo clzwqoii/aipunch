@@ -188,19 +188,17 @@
           <!-- 自动执行说明：云端定时由 workflow schedule 驱动，桌面端只做查看/触发/切换 -->
           <p class="cloud-note" data-i18n="cloudAutoNote">云端 CI 由 GitHub Actions 按仓库 workflow 每日定时自动执行，无需启动本应用；本页用于切换执行端、查看状态与手动触发。</p>
 
-          <!-- 同步状态条：桌面端与云端签到状态双向跳过的入口 -->
+          <!-- 同步状态条：桌面端与云端签到状态双向跳过的入口（启动/定时/切平台自动同步） -->
           <div class="cloud-sync-bar">
             <span class="sync-status" id="cloud-sync-status">—</span>
-            <button id="btn-cloud-refresh" class="btn-secondary" data-i18n="cloudRefresh">立即刷新</button>
           </div>
 
-          <!-- 网络状态：云端平台可达性（国内网络选型参考；[NET] 行实时更新 chip） -->
+          <!-- 网络状态：云端平台可达性（启动与切平台自动检查；[NET] 行实时更新 chip） -->
           <div class="cloud-sync-bar">
             <span class="net-status">
               <span class="net-chip" id="net-github">GitHub · 未检查</span>
               <span class="net-chip" id="net-cloudflare">Cloudflare · 未检查</span>
             </span>
-            <button id="btn-netcheck" class="btn-secondary" data-i18n="netCheck">网络检查</button>
           </div>
 
           <!-- 平台选择：单选一枚举；本地=内置引擎本地执行（轮换票自动写回 .env），GitHub Actions=云端执行，Cloudflare Workers=P2 -->
@@ -497,6 +495,7 @@
         </div>
         <div class="modal-footer">
           <button id="btn-cf-open-token-page" class="btn-secondary" data-i18n="cfOpenTokenPage">打开令牌创建页</button>
+          <button id="btn-cf-creds-only" class="btn-secondary" data-i18n="cfCredsOnlyBtn">仅保存凭证</button>
           <button id="btn-cf-deploy-run" class="btn-primary" data-i18n="cfDeployBtn">部署</button>
         </div>
       </div>

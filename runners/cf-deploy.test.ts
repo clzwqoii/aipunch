@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDeployPlan, parseDeployArgs } from './cf-deploy.ts';
+import { buildDeployPlan, parseDeployArgs, type DeployArgs } from './cf-deploy.ts';
 import type { ConfigFile } from '../core/config.ts';
 
 test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/触发不必重贴），hour/tz 有默认，triggerNow 可选', () => {
@@ -10,6 +10,7 @@ test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/
     hour: '11',
     tz: 'Asia/Shanghai',
     cronOnly: false,
+    credsOnly: false,
     triggerNow: false,
   });
   assert.deepEqual(parseDeployArgs(['--token', 't1', '--account', 'a1', '--hour', '9', '--tz', 'Asia/Tokyo', '--trigger-now']), {
@@ -18,8 +19,11 @@ test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/
     hour: '09',
     tz: 'Asia/Tokyo',
     cronOnly: false,
+    credsOnly: false,
     triggerNow: true,
   });
+  assert.equal(parseDeployArgs(['--token', 't1', '--account', 'a1', '--creds-only']).cronOnly, false);
+  assert.equal((parseDeployArgs(['--token', 't1', '--account', 'a1', '--creds-only']) as DeployArgs & { credsOnly: boolean }).credsOnly, true);
   // env 兜底：部署时写回 .env 的 CF_ACCOUNT_ID / CF_API_TOKEN
   assert.deepEqual(parseDeployArgs([], { CF_API_TOKEN: 'env-tok', CF_ACCOUNT_ID: 'env-acct' }).token, 'env-tok');
   assert.throws(() => parseDeployArgs(['--account', 'a1']), /--token/);
