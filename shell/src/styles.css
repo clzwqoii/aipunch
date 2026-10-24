@@ -1974,3 +1974,36 @@ input:checked + .slider:before {
     transform: rotate(360deg);
   }
 }
+
+/* 全局提醒 toast（凭证授权结果等）：右上角滑入，成功绿失败红 */
+.app-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2000;
+  max-width: 340px;
+  padding: 10px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.app-toast.toast-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.app-toast.toast-ok {
+  background: rgba(22, 163, 74, 0.95);
+  color: #ffffff;
+}
+
+.app-toast.toast-fail {
+  background: rgba(239, 68, 68, 0.95);
+  color: #ffffff;
+}

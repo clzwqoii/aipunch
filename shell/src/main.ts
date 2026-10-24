@@ -78,6 +78,41 @@ let configuredEnvKeys: string[] = [];
 let isRunning = false;
 let runnerResolve: ((code: number) => void) | null = null;
 let lastExitCode: number | null = null;
+let currentScriptName = "";
+
+// 凭证导入类 runner：结束时弹成功/失败提醒（用户不该盯终端才知道授权结果）
+const CREDENTIAL_RUNNERS = new Set([
+  "trae-login",
+  "codearts-login",
+  "qoder-login",
+  "autoclaw-login",
+  "autoclaw-intl-login",
+  "login",
+  "trae-extract",
+]);
+
+const CREDENTIAL_LABELS: Record<string, string> = {
+  "trae-login": "Trae 浏览器授权",
+  "codearts-login": "CodeArts OAuth 授权",
+  "qoder-login": "Qoder PAT 兑换",
+  "autoclaw-login": "AutoClaw 授权",
+  "autoclaw-intl-login": "AutoClaw 国际版授权",
+  login: "凭证登录",
+  "trae-extract": "Trae 本地凭证提取",
+};
+
+// 轻量 toast：右上角出现，成功绿失败红，4 秒自动消失
+function showToast(ok: boolean, message: string): void {
+  const box = document.createElement("div");
+  box.className = `app-toast ${ok ? "toast-ok" : "toast-fail"}`;
+  box.textContent = `${ok ? "✓" : "✕"} ${message}`;
+  document.body.appendChild(box);
+  setTimeout(() => box.classList.add("toast-show"), 30);
+  setTimeout(() => {
+    box.classList.remove("toast-show");
+    setTimeout(() => box.remove(), 300);
+  }, 4000);
+}
 
 // 初始化
 async function init() {
@@ -416,6 +451,11 @@ async function setupEventListeners() {
     runnerResolve = null;
     resolve?.(event.payload);
     lastExitCode = event.payload;
+    if (CREDENTIAL_RUNNERS.has(currentScriptName)) {
+      const label = CREDENTIAL_LABELS[currentScriptName] ?? currentScriptName;
+      showToast(event.payload === 0, `${label} ${event.payload === 0 ? "成功，凭证已保存" : `失败（代码 ${event.payload}），详情见终端日志`}`);
+    }
+    currentScriptName = "";
     renderStatusText();
     loadConfigAndState();
   });
@@ -818,6 +858,7 @@ async function startRunner(
     return -1;
   }
   isRunning = true;
+  currentScriptName = scriptName;
   setRunButton(true);
   if (!opts?.silent) {
     document.getElementById("terminal-drawer")?.classList.remove("collapsed");
