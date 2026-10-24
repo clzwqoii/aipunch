@@ -5,7 +5,6 @@ import {
   dailyCron,
   deployWorkerRequest,
   ensureKvNamespace,
-  nextMinuteCron,
   putKvValueRequest,
   putSecretRequest,
   putSchedulesRequest,
@@ -16,12 +15,6 @@ import {
 function ok(result: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, errors: [], result }), { status });
 }
-
-test('nextMinuteCron 生成下一分钟的 5 字段 cron（「立即执行」临时触发用）', () => {
-  assert.equal(nextMinuteCron(new Date('2026-10-24T03:04:30Z')), '05 03 24 10 *');
-  // 月末跨日：10-31 23:59 → 11-01 00:00
-  assert.equal(nextMinuteCron(new Date('2026-10-31T23:59:10Z')), '00 00 01 11 *');
-});
 
 test('dailyCron 生成每日整点的 5 字段 cron（UTC，分钟粒度无秒位）', () => {
   assert.equal(dailyCron('03'), '0 03 * * *');

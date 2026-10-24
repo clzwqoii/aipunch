@@ -41,14 +41,6 @@ export async function runRequest(fetchLike: FetchLike, req: Request): Promise<vo
   if (!res.ok) throw new Error(`CF API ${res.status}: ${await envelopeError(res)}`);
 }
 
-// 「立即执行」（ADR 0004）：不走 workers.dev（国内被墙），临时把 cron 改到下一分钟
-// CF cron 为 5 字段（分 时 日 月 周，分钟粒度无秒）
-export function nextMinuteCron(now: Date): string {
-  const next = new Date(now.getTime() + 60_000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(next.getUTCMinutes())} ${pad(next.getUTCHours())} ${pad(next.getUTCDate())} ${pad(next.getUTCMonth() + 1)} *`;
-}
-
 // 每日整点（UTC）的 5 字段 cron
 export function dailyCron(utcHour: string): string {
   return `0 ${utcHour} * * *`;

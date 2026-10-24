@@ -72,6 +72,14 @@ async function runScheduled(env: Env): Promise<void> {
 
 export default {
   async scheduled(_event: unknown, env: Env, _ctx: unknown): Promise<void> {
-    await runScheduled(env);
+    try {
+      await runScheduled(env);
+      await env.AIPUNCH_KV.put('error', '').catch(() => {});
+    } catch (err) {
+      // 执行失败落 KV：桌面端与面板都无需 tail 日志即可诊断（CF tail 不支持 Token 认证）
+      const message = (err as Error).message.slice(0, 2000);
+      await env.AIPUNCH_KV.put('error', JSON.stringify({ at: new Date().toISOString(), message })).catch(() => {});
+      throw err;
+    }
   },
 };

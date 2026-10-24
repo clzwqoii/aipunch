@@ -15,7 +15,6 @@ import {
   dailyCron,
   deployWorkerRequest,
   ensureKvNamespace,
-  nextMinuteCron,
   putKvValueRequest,
   putSecretRequest,
   putSchedulesRequest,
@@ -75,58 +74,89 @@ export function parseDeployArgs(
   };
 }
 
-// 部署计划：KV config（只含 accounts，platform 是桌面端概念不下发）、Secrets 清单（CF 管理凭证 + 账号凭证）、cron
+// providers 经 process.env 读取的辅助凭证（设备/风控/签名材料，与账号 refreshToken 配套）。
+// CF nodejs_compat 会把 Secrets 注入 process.env，部署时一并上传；缺了对应 provider 会失败
+// （实测：codearts 缺 DPOP_KEY 直接 FAIL）。清单与 providers/ 的 process.env 引用保持同步。
+const EXTRA_SECRET_KEYS = [
+  'CODEARTS_DPOP_KEY',
+  'CODEARTS_CODE_VERIFIER',
+  'CODEARTS_CLIENT_ID',
+  'TRAE_DEVICE_ID',
+  'TRAE_MACHINE_ID',
+  'TRAE_USER_ID',
+  'TRAE_CLIENT_ID',
+  'TRAE_CLIENT_VERSION',
+  'TRAE_CLIENT_VERSION_CODE',
+  'TRAE_APPVERSION',
+  'TRAE_REQ_SOURCE',
+  'AUTOCLAW_DEVICE_ID',
+  'AUTOCLAW_INTL_DEVICE_ID',
+  'QODER_COSY_MACHINE_TOKEN',
+] as const;
+
+// 部署计划：KV config（只含 accounts，platform 是桌面端概念不下发）、Secrets 清单（CF 管理凭证 + 账号凭证 + 辅助凭证）、cron
 export function buildDeployPlan(
   config: ConfigFile,
   env: Record<string, string | undefined>,
   args: Pick<DeployArgs, 'token' | 'account' | 'hour' | 'tz'>,
 ): { kvConfig: string; secrets: Array<{ name: string; value: string }>; crons: string[] } {
-  const missing = config.accounts.flatMap((a) =>
-    [a.tokenEnv, a.refreshTokenEnv].filter((n): n is string => !!n && !env[n]),
-  );
-  if (missing.length > 0) {
-    throw new Error(`以下凭证未在 .env/环境中配置，无法部署：${missing.join(', ')}（请先在桌面端完成凭证导入）`);
+  const accountKeys = config.accounts.flatMap((a) => [a.tokenEnv, a.refreshTokenEnv].filter((n): n is string => !!n));
+  const extraKeys = EXTRA_SECRET_KEYS.filter((k) => env[k]);
+  const missing = [...accountKeys, ...extraKeys].filter((n) => !env[n]);
+  // 辅助键缺失不阻断（有默认值/可选），账号凭证缺失才整体报错
+  const missingAccount = accountKeys.filter((n) => !env[n]);
+  if (missingAccount.length > 0) {
+    throw new Error(`以下凭证未在 .env/环境中配置，无法部署：${missingAccount.join(', ')}（请先在桌面端完成凭证导入）`);
   }
-  const accountSecrets = config.accounts.flatMap((a) =>
-    [a.tokenEnv, a.refreshTokenEnv].filter((n): n is string => !!n).map((n) => ({ name: n, value: env[n] as string })),
-  );
+  void missing;
   return {
     kvConfig: JSON.stringify({ accounts: config.accounts }),
     secrets: [
       { name: 'CF_ACCOUNT_ID', value: args.account },
       { name: 'CF_API_TOKEN', value: args.token },
-      ...accountSecrets,
+      ...[...new Set([...accountKeys, ...extraKeys])].map((n) => ({ name: n, value: env[n] as string })),
     ],
     crons: [dailyCron(cronHourFor(args.hour, args.tz))],
   };
 }
 
-// 立即执行：cron 临时改到下一分钟 → 轮询 KV result 更新 → 恢复每日 cron（ADR 0004 不走 workers.dev）
+// 立即执行（ADR 0004）：不走 workers.dev（国内被墙）。CF cron 调度有分钟级延迟（实测
+// 单分钟窗口经常错过），临时 cron 设为每分钟；worker 端签到幂等，多次触发无害；
+// 轮询 result/error 任一出现即为终态，立即恢复每日 cron
 async function triggerNow(args: DeployArgs): Promise<void> {
   const nsId = process.env.CF_KV_NAMESPACE;
   if (!nsId) throw new Error('尚未部署（缺 CF_KV_NAMESPACE）：请先完整部署一次');
   const before = await readKvValue(fetch, args.account, args.token, nsId, 'result');
   const beforeAt = before ? (JSON.parse(before) as { finishedAt?: string }).finishedAt : '';
-  const temp = nextMinuteCron(new Date());
-  console.log(`[CF] 立即执行：临时 cron ${temp}（UTC）`);
-  await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [temp]));
-  const deadline = Date.now() + 5 * 60_000;
-  let latestAt = '';
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 15_000));
-    const raw = await readKvValue(fetch, args.account, args.token, nsId, 'result');
-    latestAt = raw ? (JSON.parse(raw) as { finishedAt?: string }).finishedAt ?? '' : '';
-    console.log(`[CF] 等待执行结果（当前 ${latestAt || '无'}）…`);
-    if (latestAt && latestAt !== beforeAt) break;
-  }
-  // 恢复每日定时（无论成功失败都恢复，避免 cron 停在一次性表达式上）
-  await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [dailyCron(cronHourFor(args.hour, args.tz))]));
-  if (!latestAt || latestAt === beforeAt) throw new Error('等待超时：未观察到新结果，请到 Cloudflare 面板查看 worker 日志');
-  const entry = JSON.parse((await readKvValue(fetch, args.account, args.token, nsId, 'result')) as string) as {
-    succeeded: number;
-    total: number;
+  console.log('[CF] 立即执行：临时 cron 每分钟触发（CF 调度有分钟级延迟，最长等待 8 分钟）');
+  await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, ['* * * * *']));
+  const deadline = Date.now() + 8 * 60_000;
+  let result: string | null = null;
+  let error: string | null = null;
+  const read = async (key: string): Promise<string | null> => {
+    try {
+      return await readKvValue(fetch, args.account, args.token, nsId, key);
+    } catch {
+      return null; // 国内网络抖动：轮询重试即可
+    }
   };
-  console.log(`[CF] 执行完成：${entry.succeeded}/${entry.total} 成功（结果将由「立即刷新」同步到本地）`);
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 20_000));
+    [result, error] = await Promise.all([read('result'), read('error')]);
+    const at = result ? (JSON.parse(result) as { finishedAt?: string }).finishedAt ?? '' : '';
+    console.log(`[CF] 等待执行结果（${at && at !== beforeAt ? '有新结果' : at ? '结果未更新' : '暂无'}${error ? ' · 有错误' : ''}）…`);
+    if ((at && at !== beforeAt) || error) break;
+  }
+  // 恢复每日定时（无论成败都恢复，避免 cron 停在每分钟）
+  await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [dailyCron(cronHourFor(args.hour, args.tz))]));
+  if (error) {
+    const detail = (JSON.parse(error) as { message?: string }).message ?? error;
+    throw new Error(`执行失败：${detail.slice(0, 200)}`);
+  }
+  if (!result) throw new Error('等待超时：未观察到新结果，请到 Cloudflare 面板查看 worker 日志');
+  const entry = JSON.parse(result) as { finishedAt?: string; succeeded: number; total: number };
+  if ((entry.finishedAt ?? '') === beforeAt) throw new Error('等待超时：结果未更新');
+  console.log(`[CF] 执行完成：${entry.succeeded}/${entry.total} 成功（结果将由 ci-sync 同步到本地）`);
   if (entry.succeeded < entry.total) process.exitCode = 1;
 }
 
