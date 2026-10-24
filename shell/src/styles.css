@@ -1960,7 +1960,15 @@ input:checked + .slider:before {
 }
 
 /* 一键签到执行中的加载动画（按钮文案保持不变） */
+.btn-primary-gradient {
+  position: relative;
+}
+
 .btn-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: -7px 0 0 -7px; /* 居中（尺寸 14px） */
   width: 14px;
   height: 14px;
   border: 2px solid rgba(255, 255, 255, 0.35);

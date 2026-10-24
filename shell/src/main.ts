@@ -837,8 +837,8 @@ function setRunButton(running: boolean) {
   const spinner = document.getElementById("btn-run-all-spinner");
   if (!btnRunAll || !btnRunAllText) return;
   btnRunAll.disabled = running;
-  // 执行中只切加载动画，按钮文案保持「一键签到」不变
-  btnRunAllText.hidden = running;
+  // 执行中只切加载动画；文字用 visibility 占位（hidden 会让按钮宽度收缩）
+  btnRunAllText.style.visibility = running ? "hidden" : "visible";
   if (spinner) spinner.hidden = !running;
 }
 
