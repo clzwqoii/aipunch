@@ -1,16 +1,13 @@
 // 桌面端「部署到 Cloudflare Workers」（ADR 0004 P2）：粘贴 API Token + Account ID，
 // 全 REST 代部署（KV namespace + worker 脚本 + 凭证 Secrets + cron），无需 wrangler/git。
+// 一键幂等：凭证必写；脚本按内容指纹比对，相同则跳过上传（不触发脚本上传频控）。
 // 用法：
 //   npm run cf-deploy -- --token <t> --account <id> [--hour 11] [--tz Asia/Shanghai] [--script <worker.mjs>]
 //   npm run cf-deploy -- --trigger-now   # 立即执行：临时把 cron 改到下一分钟，KV 出结果后恢复（workers.dev 国内被墙不走 HTTP）
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-
-// 数据目录定位：Rust 注入的 AIPUNCH_WORK_DIR 是唯一事实源；直接终端跑时回退 cwd
-// （此前按 process.cwd() 定位 .env，dev/安装模式下 cwd 错位导致 CF 配置回写丢失）
-export function workDirRoot(): string {
-  return process.env.AIPUNCH_WORK_DIR ?? process.cwd();
-}
+import { fileURLToPath } from 'node:url';
 import type { ConfigFile } from '../core/config.ts';
 import { loadDotEnv, setEnvValue } from '../core/dotenv.ts';
 import { cronHourFor } from './ci-checkin.ts';
@@ -28,6 +25,18 @@ import {
 
 const SCRIPT = 'aipunch-checkin';
 const KV_TITLE = 'aipunch';
+// KV 里记录已上传脚本的指纹：重复部署比对相同则跳过上传
+const KV_KEY_WORKER_SHA = 'worker_sha';
+
+// 数据目录定位：Rust 注入的 AIPUNCH_WORK_DIR 是唯一事实源；直接终端跑时回退 cwd
+// （此前按 process.cwd() 定位 .env，dev/安装模式下 cwd 错位导致 CF 配置回写丢失）
+export function workDirRoot(): string {
+  return process.env.AIPUNCH_WORK_DIR ?? process.cwd();
+}
+
+export function workerSha(code: string): string {
+  return createHash('sha256').update(code).digest('hex');
+}
 
 export interface DeployArgs {
   token: string;
@@ -35,7 +44,6 @@ export interface DeployArgs {
   hour: string; // 两位 00-23
   tz: string;
   cronOnly: boolean; // 只更新 cron 触发器（CF 平台的「保存定时」）
-  credsOnly: boolean; // 只保存凭证到 .env（已部署但回写丢失/换机场景；不重新上传脚本，无频控）
   triggerNow: boolean;
 }
 
@@ -63,7 +71,6 @@ export function parseDeployArgs(
     hour: String(Number(hourRaw)).padStart(2, '0'),
     tz: value('tz') ?? 'Asia/Shanghai',
     cronOnly: argv.includes('--cron-only'),
-    credsOnly: argv.includes('--creds-only'),
     triggerNow: argv.includes('--trigger-now'),
   };
 }
@@ -123,11 +130,17 @@ async function triggerNow(args: DeployArgs): Promise<void> {
   if (entry.succeeded < entry.total) process.exitCode = 1;
 }
 
-// worker.mjs 定位：--script 显式指定 > 数据目录 > 内置引擎目录（execPath 旁的 engine/）
-function findWorkerBundle(explicit?: string): string {
+// worker.mjs 定位：--script 显式指定 > 数据目录 > 内置引擎目录（execPath 旁）> 引擎源目录（仓库直跑）
+export function findWorkerBundle(explicit?: string): string {
+  const here = dirname(fileURLToPath(import.meta.url));
   const candidates = explicit
     ? [explicit]
-    : [join(process.cwd(), 'worker.mjs'), join(dirname(process.execPath), 'engine', 'worker.mjs')];
+    : [
+        join(process.cwd(), 'worker.mjs'),
+        join(dirname(process.execPath), 'engine', 'worker.mjs'),
+        join(here, 'worker.mjs'),
+        join(here, '..', 'shell', 'src-tauri', 'resources', 'engine', 'worker.mjs'),
+      ];
   for (const path of candidates) {
     if (existsSync(path)) return path;
   }
@@ -135,23 +148,10 @@ function findWorkerBundle(explicit?: string): string {
 }
 
 async function main(): Promise<void> {
-  loadDotEnv();
+  loadDotEnv(workDirRoot()); // env 兜底读数据目录 .env（部署时写回的 CF_*）
   const args = parseDeployArgs(process.argv.slice(2), process.env);
   if (args.triggerNow) return triggerNow(args);
   const cron = dailyCron(cronHourFor(args.hour, args.tz));
-  if (args.credsOnly) {
-    // 只保存凭证：查现有 KV namespace（已存在则纯读，不创建不上传，无频控），写回 .env
-    const nsId = await ensureKvNamespace(fetch, args.account, args.token, KV_TITLE);
-    const envFile = join(workDirRoot(), '.env');
-    setEnvValue(envFile, 'CF_ACCOUNT_ID', args.account);
-    setEnvValue(envFile, 'CF_API_TOKEN', args.token);
-    setEnvValue(envFile, 'CF_KV_NAMESPACE', nsId);
-    if (!readFileSync(envFile, 'utf8').includes(`CF_KV_NAMESPACE=${nsId}`)) {
-      throw new Error('凭证写回 .env 未生效，请检查数据目录可写');
-    }
-    console.log('[CF] 凭证已保存到本机 .env（worker 与部署保持现状，未重新上传）');
-    return;
-  }
   if (args.cronOnly) {
     // CF 平台的「保存定时」：只改 cron 触发器
     await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [cron]));
@@ -169,21 +169,31 @@ async function main(): Promise<void> {
   );
 
   const nsId = await ensureKvNamespace(fetch, args.account, args.token, KV_TITLE);
+  // 一键幂等：KV 配置随时可写（独立于 worker）；脚本按指纹比对，相同跳过上传（省频控），
+  // 不同则先上传——Secrets/Schedules 端点要求 worker 已存在，必须排在脚本之后
   await runRequest(fetch, putKvValueRequest(args.account, args.token, nsId, 'config', plan.kvConfig));
-  await runRequest(fetch, await deployWorkerRequest(args.account, args.token, SCRIPT, nsId, plan.crons, code));
+  const sha = workerSha(code);
+  const remoteSha = await readKvValue(fetch, args.account, args.token, nsId, KV_KEY_WORKER_SHA);
+  if (remoteSha === sha) {
+    console.log(`[CF] worker 已是最新（${sha.slice(0, 8)}），跳过脚本上传`);
+  } else {
+    await runRequest(fetch, await deployWorkerRequest(args.account, args.token, SCRIPT, nsId, plan.crons, code));
+    await runRequest(fetch, putKvValueRequest(args.account, args.token, nsId, KV_KEY_WORKER_SHA, sha));
+    console.log(`[CF] worker 脚本已上传（${sha.slice(0, 8)}）`);
+  }
   for (const secret of plan.secrets) {
     await runRequest(fetch, putSecretRequest(args.account, args.token, SCRIPT, secret.name, secret.value));
   }
+  await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, plan.crons));
   // 部署元信息写回 .env：ci-sync 的 KV 分支与 --trigger-now 都从这里读；写回后自检防静默丢失
-  const envFile = join(workDirRoot(), '.env');
+  const envFile = join(root, '.env');
   setEnvValue(envFile, 'CF_ACCOUNT_ID', args.account);
   setEnvValue(envFile, 'CF_API_TOKEN', args.token);
   setEnvValue(envFile, 'CF_KV_NAMESPACE', nsId);
   if (!readFileSync(envFile, 'utf8').includes(`CF_KV_NAMESPACE=${nsId}`)) {
-    console.log(`[CF] 警告：CF 配置回写 .env 未生效（${envFile}），「立即刷新」同步将报配置不完整`);
+    throw new Error(`CF 配置回写 .env 未生效（${envFile}），同步将报配置不完整`);
   }
-  console.log(`[CF] 部署完成：worker ${SCRIPT} · KV ${KV_TITLE}（${nsId.slice(0, 8)}…）`);
-  console.log(`[CF] 定时 ${args.tz} ${args.hour}:00（cron ${plan.crons[0]} UTC）；凭证已入 Secrets，轮换票由 worker 自动回写`);
+  console.log(`[CF] 部署完成：worker ${SCRIPT} · KV ${KV_TITLE}（${nsId.slice(0, 8)}…）· 定时 ${args.tz} ${args.hour}:00`);
 }
 
 // 仅直接执行时运行；被测试 import 时不能发起真实请求

@@ -985,30 +985,8 @@ function setupCloudControls(): void {
     void invoke("open_external", { target: "https://dash.cloudflare.com/profile/api-tokens" });
   });
   document.getElementById("btn-cf-deploy-close")?.addEventListener("click", () => cfModal?.classList.add("hidden"));
-  // 仅保存凭证：已部署但 .env 回写丢失/换机场景——查现有 KV id 并落盘，不重新上传（无频控）
-  document.getElementById("btn-cf-creds-only")?.addEventListener("click", async () => {
-    const btn = document.getElementById("btn-cf-creds-only") as HTMLButtonElement | null;
-    const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();
-    const account = (document.getElementById("cf-account-input") as HTMLInputElement | null)?.value.trim();
-    if (!token || !account) {
-      showCfResult("warn");
-      return;
-    }
-    lastCfError = "";
-    if (btn) btn.disabled = true;
-    showCfResult("running");
-    const code = await startRunner("cf-deploy", ["--creds-only", "--token", token, "--account", account]);
-    if (btn) btn.disabled = false;
-    if (code === 0) {
-      showCfResult("ok", t("cfResultCredsOkDesc"));
-      await loadConfigAndState();
-      setTimeout(() => cfModal?.classList.add("hidden"), 2000);
-    } else {
-      showCfResult("fail", lastCfError || undefined);
-    }
-  });
-
-  // 部署按钮生命周期：部署中禁用并保持弹框 → 按退出码给结果；成功才关闭并刷新卡片状态，失败留在弹框内修正重试
+  // 部署按钮生命周期：一键幂等（凭证/配置/定时每次刷新；脚本指纹相同跳过上传，无频控），
+  // 部署中禁用并保持弹框 → 按退出码给结果；成功才关闭并刷新卡片状态，失败留在弹框内修正重试
   document.getElementById("btn-cf-deploy-run")?.addEventListener("click", async () => {
     const runBtn = document.getElementById("btn-cf-deploy-run") as HTMLButtonElement | null;
     const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();

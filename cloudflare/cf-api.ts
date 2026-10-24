@@ -42,15 +42,16 @@ export async function runRequest(fetchLike: FetchLike, req: Request): Promise<vo
 }
 
 // 「立即执行」（ADR 0004）：不走 workers.dev（国内被墙），临时把 cron 改到下一分钟
+// CF cron 为 5 字段（分 时 日 月 周，分钟粒度无秒）
 export function nextMinuteCron(now: Date): string {
   const next = new Date(now.getTime() + 60_000);
   const pad = (n: number): string => String(n).padStart(2, '0');
-  return `0 ${pad(next.getUTCMinutes())} ${pad(next.getUTCHours())} ${pad(next.getUTCDate())} ${pad(next.getUTCMonth() + 1)} *`;
+  return `${pad(next.getUTCMinutes())} ${pad(next.getUTCHours())} ${pad(next.getUTCDate())} ${pad(next.getUTCMonth() + 1)} *`;
 }
 
-// 每日整点（UTC）的 6 段 cron
+// 每日整点（UTC）的 5 字段 cron
 export function dailyCron(utcHour: string): string {
-  return `0 0 ${utcHour} * * *`;
+  return `0 ${utcHour} * * *`;
 }
 
 // KV namespace：按 title 找，没有则创建（幂等，重复部署复用同一 namespace）
@@ -139,8 +140,9 @@ export function putSchedulesRequest(
   });
 }
 
-// 部署 worker 脚本（multipart）：KV 绑定 + 管理凭证占位 Secret + cron 触发器 + 兼容日期。
-// 凭证 Secret 的值走 putSecretRequest 单独写入（multipart 只声明绑定名，避免脚本内容携带明文）。
+// 部署 worker 脚本（multipart）：metadata 只声明 KV 绑定——secret_text 声明会被 CF 要求
+// 同请求附带明文值（400 missing text property）；凭证一律走 putSecretRequest 独立端点，
+// 部署流程在脚本上传后紧随写入（worker 端 env 同名可见）。
 export async function deployWorkerRequest(
   accountId: string,
   token: string,
@@ -155,15 +157,12 @@ export async function deployWorkerRequest(
     JSON.stringify({
       main_module: 'worker.mjs',
       compatibility_date: '2026-10-01',
-      bindings: [
-        { type: 'kv_namespace', name: 'AIPUNCH_KV', namespace_id: kvNamespaceId },
-        { type: 'secret_text', name: 'CF_ACCOUNT_ID' },
-        { type: 'secret_text', name: 'CF_API_TOKEN' },
-      ],
+      bindings: [{ type: 'kv_namespace', name: 'AIPUNCH_KV', namespace_id: kvNamespaceId }],
       triggers: { crons },
     }),
   );
-  form.set('worker.mjs', new File([scriptCode], 'worker.mjs', { type: 'text/javascript' }));
+  // module MIME 必须是 ES module 类型，否则 CF 按服务端脚本解析，import 语句直接报语法错
+  form.set('worker.mjs', new File([scriptCode], 'worker.mjs', { type: 'application/javascript+module' }));
   return new Request(`${BASE}/accounts/${accountId}/workers/scripts/${scriptName}`, {
     method: 'PUT',
     headers: authHeaders(token),

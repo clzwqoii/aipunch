@@ -17,14 +17,14 @@ function ok(result: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, errors: [], result }), { status });
 }
 
-test('nextMinuteCron 生成下一分钟的 6 段 cron（「立即执行」临时触发用）', () => {
-  assert.equal(nextMinuteCron(new Date('2026-10-24T03:04:30Z')), '0 05 03 24 10 *');
+test('nextMinuteCron 生成下一分钟的 5 字段 cron（「立即执行」临时触发用）', () => {
+  assert.equal(nextMinuteCron(new Date('2026-10-24T03:04:30Z')), '05 03 24 10 *');
   // 月末跨日：10-31 23:59 → 11-01 00:00
-  assert.equal(nextMinuteCron(new Date('2026-10-31T23:59:10Z')), '0 00 00 01 11 *');
+  assert.equal(nextMinuteCron(new Date('2026-10-31T23:59:10Z')), '00 00 01 11 *');
 });
 
-test('dailyCron 生成每日整点的 6 段 cron（UTC）', () => {
-  assert.equal(dailyCron('03'), '0 0 03 * * *');
+test('dailyCron 生成每日整点的 5 字段 cron（UTC，分钟粒度无秒位）', () => {
+  assert.equal(dailyCron('03'), '0 03 * * *');
 });
 
 test('cfFetch 提取 result，CF 信封失败时抛出 errors', async () => {
@@ -75,10 +75,10 @@ test('putSecretRequest 构造单条 Secret 写入请求（worker 自回写与部
 });
 
 test('putSchedulesRequest 构造 cron 触发器请求', async () => {
-  const req = putSchedulesRequest('acct', 'tok', 'aipunch-checkin', ['0 0 3 * * *']);
+  const req = putSchedulesRequest('acct', 'tok', 'aipunch-checkin', ['0 3 * * *']);
   assert.equal(req.method, 'PUT');
   assert.ok(req.url.endsWith('/workers/scripts/aipunch-checkin/schedules'));
-  assert.deepEqual(JSON.parse(await req.text()), [{ cron: '0 0 3 * * *' }]);
+  assert.deepEqual(JSON.parse(await req.text()), [{ cron: '0 3 * * *' }]);
 });
 
 test('readKvValue 返回值，404 返回 null', async () => {
@@ -119,18 +119,15 @@ test('runRequest 转发 method/body 并解析信封失败', async () => {
 });
 
 test('deployWorkerRequest 组装 multipart：metadata 含 main_module/KV 绑定/compat 日期', async () => {
-  const req = await deployWorkerRequest('acct', 'tok', 'aipunch-checkin', 'ns1', ['0 0 3 * * *'], 'export default {}');
+  const req = await deployWorkerRequest('acct', 'tok', 'aipunch-checkin', 'ns1', ['0 3 * * *'], 'export default {}');
   assert.equal(req.method, 'PUT');
   assert.ok(req.url.endsWith('/accounts/acct/workers/scripts/aipunch-checkin'));
   const form = await req.clone().formData();
   const metadata = JSON.parse(String(form.get('metadata')));
   assert.equal(metadata.main_module, 'worker.mjs');
   assert.equal(metadata.compatibility_date, '2026-10-01');
-  assert.deepEqual(metadata.bindings, [
-    { type: 'kv_namespace', name: 'AIPUNCH_KV', namespace_id: 'ns1' },
-    { type: 'secret_text', name: 'CF_ACCOUNT_ID' },
-    { type: 'secret_text', name: 'CF_API_TOKEN' },
-  ]);
-  assert.deepEqual(metadata.triggers?.crons, ['0 0 3 * * *']);
+  // secret_text 不在 metadata 声明（CF 会要求同请求带值）；凭证走独立 PUT secrets 端点
+  assert.deepEqual(metadata.bindings, [{ type: 'kv_namespace', name: 'AIPUNCH_KV', namespace_id: 'ns1' }]);
+  assert.deepEqual(metadata.triggers?.crons, ['0 3 * * *']);
   assert.ok(String(await (form.get('worker.mjs') as File).text()).includes('export default'));
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDeployPlan, parseDeployArgs, type DeployArgs } from './cf-deploy.ts';
+import { buildDeployPlan, parseDeployArgs, workerSha } from './cf-deploy.ts';
 import type { ConfigFile } from '../core/config.ts';
 
 test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/触发不必重贴），hour/tz 有默认，triggerNow 可选', () => {
@@ -10,7 +10,6 @@ test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/
     hour: '11',
     tz: 'Asia/Shanghai',
     cronOnly: false,
-    credsOnly: false,
     triggerNow: false,
   });
   assert.deepEqual(parseDeployArgs(['--token', 't1', '--account', 'a1', '--hour', '9', '--tz', 'Asia/Tokyo', '--trigger-now']), {
@@ -19,16 +18,19 @@ test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/
     hour: '09',
     tz: 'Asia/Tokyo',
     cronOnly: false,
-    credsOnly: false,
     triggerNow: true,
   });
-  assert.equal(parseDeployArgs(['--token', 't1', '--account', 'a1', '--creds-only']).cronOnly, false);
-  assert.equal((parseDeployArgs(['--token', 't1', '--account', 'a1', '--creds-only']) as DeployArgs & { credsOnly: boolean }).credsOnly, true);
   // env 兜底：部署时写回 .env 的 CF_ACCOUNT_ID / CF_API_TOKEN
   assert.deepEqual(parseDeployArgs([], { CF_API_TOKEN: 'env-tok', CF_ACCOUNT_ID: 'env-acct' }).token, 'env-tok');
   assert.throws(() => parseDeployArgs(['--account', 'a1']), /--token/);
   assert.throws(() => parseDeployArgs(['--token', 't1']), /--account/);
   assert.throws(() => parseDeployArgs([], {}), /--token/);
+});
+
+test('workerSha 对脚本内容取稳定指纹（决定是否跳过重复上传）', () => {
+  assert.equal(workerSha('export default {}'), workerSha('export default {}'));
+  assert.notEqual(workerSha('export default {}'), workerSha('export default { /* v2 */ }'));
+  assert.match(workerSha('x'), /^[0-9a-f]{64}$/);
 });
 
 test('buildDeployPlan：KV config 只含 accounts，Secrets 含 CF 管理凭证与各账号凭证', () => {
@@ -48,7 +50,7 @@ test('buildDeployPlan：KV config 只含 accounts，Secrets 含 CF 管理凭证�
     ],
   );
   assert.equal(plan.crons.length, 1); // 北京 11:00 = UTC 3 点
-  assert.equal(plan.crons[0], '0 0 03 * * *');
+  assert.equal(plan.crons[0], '0 03 * * *');
 });
 
 test('buildDeployPlan：账号凭证缺失时部署前整体报错（避免半部署）', () => {
