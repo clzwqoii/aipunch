@@ -30,7 +30,7 @@
   - 2026-10-24 手测反馈修复（三项）：深色主题平台名看不清（`.platform-card` 是 button 不吃继承色，补 `color: var(--text-primary)`）；新增「GitHub Actions 配置」区块（repo 状态三色显示 + 5 步配置流程 + 「检查配置」按钮复用 `ci-checkin --check`，退出码判定 ok/fail）；页头补自动执行说明（云端定时无需启动本应用）。shell tsc + 3/3 测试过，vite 浏览器冒烟截图确认深色可读、布局无异常；真实 app 内「检查配置」按钮待手测
   - 2026-10-24 二轮反馈（两项）：① 配置区块收进 GitHub 卡片右上角「⚙ 配置」标识（span+stopPropagation，card 是 button 嵌套交互元素违规）点击弹框显示教程+状态+检查配置；② 平台切换联动仓库 CI 启停（ADR 0004 单执行端落地）：切 local 自动 `gh workflow disable checkin.yml`、切回云端 enable（ci-checkin 新增 `--workflow-disable/enable`，TDD 三纯函数 workflowToggleArgs/workflowStateFromView/parseCiArgs 扩展；`--check` 输出加 workflow 启停状态）。204/204 绿 + build:engine 重打包；待真实 app 手测：切平台看终端 [CI] 已禁用/已启用、⚙ 弹框交互
   - 2026-10-24 三轮反馈（布局密度）：#tab-cloud 板块间距 20→12px、pane-header padding 压缩，执行记录回到首屏；同步状态条与平台卡背景 recessed→card（浅色下=纯白），状态条 padding 10/14→5/12、内部按钮 4px 10px 紧凑；cloudPlatformSub 副标题加「云端平台无需启动本应用也按时自动签到」。浅色主题整页截图验证四项到位；深色走主题变量自动适配
-  - 2026-10-24 五轮（定时方案切换，决策账本已记）：每小时 gate 被「改 cron 只跑一次」取代——`--set-schedule` 经 gh API 读改 checkin.yml 的 cron 行并 PUT 提交，时区→UTC 用 Intl 按当日偏移换算（DST 漂移 1 小时重存即校正），`AIPUNCH_CHECKIN_TZ` 变量仅供检查配置读回；gate/每小时 cron 全部移除，TDD 208/208 绿。**卡点：本机 gh token 缺 workflow scope（PUT 对 workflow 文件伪装 404），用户跑 `gh auth refresh -s workflow` 后重测 `npm run ci-checkin -- --set-schedule 11` 即通**（60c6524、31dfbc9 已推送）
+  - 2026-10-24 五轮（定时方案切换，决策账本已记）：每小时 gate 被「改 cron 只跑一次」取代——`--set-schedule` 经 gh API 读改 checkin.yml 的 cron 行并 PUT 提交，时区→UTC 用 Intl 按当日偏移换算（DST 漂移 1 小时重存即校正），`AIPUNCH_CHECKIN_TZ` 变量仅供检查配置读回；gate/每小时 cron 全部移除。**真实链路已实测全通**（用户补 workflow scope 后）：PUT 改 cron 成 commit b5774f4、`--check` 显示「定时运行中 · 定时 Asia/Shanghai 11:00」；顺带修正 workflow 状态读取（`gh workflow view --yaml` 输出的是文件内容不含 state，改读 REST `actions/workflows/:file` 的 state 字段）。208/208 绿
 
 ### 桌面端 v0.2.2 上线确认
 - 状态：待确认
