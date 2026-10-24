@@ -216,9 +216,13 @@
                 </span>
                 <span class="platform-desc" data-i18n="cloudPlatformGithubDesc">云端定时+触发执行，结果经 ci-sync 拉取同步到本地</span>
               </button>
-              <button class="platform-card" data-platform="cloudflare-workers" disabled>
-                <span class="platform-name">Cloudflare Workers</span>
-                <span class="platform-desc" data-i18n="cloudPlatformCfDesc">零仓库云端执行端（无需建仓库）——P2 提供</span>
+              <button class="platform-card" data-platform="cloudflare-workers">
+                <span class="platform-card-head">
+                  <span class="platform-name">Cloudflare Workers</span>
+                  <!-- card 本身是 button（嵌套交互元素违规），标识用 span + stopPropagation 打开部署弹框 -->
+                  <span class="platform-badge" id="cf-deploy-open" data-i18n="cfDeployBadge" title="部署到 Cloudflare">⚙ 部署</span>
+                </span>
+                <span class="platform-desc" data-i18n="cloudPlatformCfDesc">零仓库云端执行端：粘贴 API Token 即部署，无需 GitHub；每日定时自动执行</span>
               </button>
             </div>
 
@@ -440,6 +444,31 @@
         </div>
         <div class="modal-footer">
           <button id="btn-cloud-check" class="btn-primary" data-i18n="cloudConfigCheck">检查配置</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗：Cloudflare Workers 代部署（入口：平台卡上的 ⚙ 部署） -->
+    <div id="cf-deploy-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h4 data-i18n="cfDeployTitle">部署到 Cloudflare Workers</h4>
+          <button id="btn-cf-deploy-close" class="modal-close-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted" data-i18n="cfDeploySub">粘贴 Cloudflare 凭证即可代部署（KV + 脚本 + Secrets + 定时），无需安装 wrangler</p>
+          <div class="cf-deploy-form">
+            <label for="cf-token-input"><span data-i18n="cfTokenLabel">API Token</span>
+              <input id="cf-token-input" type="password" placeholder="Workers Scripts:Edit + Workers KV Storage:Edit 权限" />
+            </label>
+            <label for="cf-account-input"><span data-i18n="cfAccountLabel">Account ID</span>
+              <input id="cf-account-input" type="text" placeholder="控制台右侧栏 Account ID" />
+            </label>
+            <p class="text-muted" data-i18n="cfDeployNote">定时沿用上方「定时执行」的小时与时区；凭证在本机 .env 留存，部署后重复操作无需重贴。</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cf-deploy-run" class="btn-primary" data-i18n="cfDeployBtn">部署</button>
         </div>
       </div>
     </div>

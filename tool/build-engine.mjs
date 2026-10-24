@@ -23,6 +23,7 @@ const ENTRIES = {
   'codearts-login': 'runners/codearts-login.ts',
   'autoclaw-login': 'runners/autoclaw-login.ts',
   'autoclaw-intl-login': 'runners/autoclaw-intl-login.ts',
+  'cf-deploy': 'runners/cf-deploy.ts',
   login: 'runners/login.ts',
 };
 
@@ -37,6 +38,19 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node22',
+  logLevel: 'info',
+});
+
+// Cloudflare Workers 执行端脚本（ADR 0004 P2）：桌面端部署 UI 读取此产物上传 CF。
+// platform 保持 node 让 node:crypto 留 external（Workers nodejs_compat 运行时提供）。
+await build({
+  entryPoints: [{ in: join(root, 'cloudflare/worker.ts'), out: 'worker' }],
+  outdir: engineDir,
+  outExtension: { '.js': '.mjs' },
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'es2022',
   logLevel: 'info',
 });
 

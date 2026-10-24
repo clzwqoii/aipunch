@@ -59,3 +59,10 @@ test('refreshTokenEnv 指向的环境变量未设置时抛错', () => {
   });
   assert.throws(() => resolveAccounts(loadConfig(path)), /MISSING_REFRESH_VAR/);
 });
+
+test('resolveAccounts 支持注入 env 源（Workers 的 Secrets 走 env 参数而非 process.env）', () => {
+  const accounts = [{ provider: 'trae', name: 'main', refreshTokenEnv: 'TRAE_REFRESH_TOKEN' }];
+  const [account] = resolveAccounts({ accounts }, { TRAE_REFRESH_TOKEN: 'tok' });
+  assert.equal(account.refreshToken, 'tok');
+  assert.throws(() => resolveAccounts({ accounts }, {}), /TRAE_REFRESH_TOKEN 未设置/);
+});

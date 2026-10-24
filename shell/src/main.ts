@@ -801,9 +801,12 @@ function runCheckinAll() {
     appendTerminalLog("[跳过] 今日已全部签到，无需重复执行");
     return;
   }
-  // 平台单选（ADR 0004）：本地模式走内置引擎（轮换票自动写回 .env），云端模式触发 CI（单执行端）
-  if (activePlatform() === "local") {
+  // 平台单选（ADR 0004）：本地走内置引擎；GitHub 走 ci-checkin；CF 临时改 cron 到下一分钟触发（ADR 不走 workers.dev）
+  const platform = activePlatform();
+  if (platform === "local") {
     void startRunner("checkin", []);
+  } else if (platform === "cloudflare-workers") {
+    void startRunner("cf-deploy", ["--trigger-now"]);
   } else {
     void startRunner("ci-checkin", []);
   }
@@ -819,8 +822,9 @@ function allDoneToday(): boolean {
 }
 
 // 9. 云端 CI：平台单选（ADR 0004）与拉取式同步
-function activePlatform(): "local" | "github-actions" {
-  return currentConfig.platform === "local" ? "local" : "github-actions";
+function activePlatform(): "local" | "github-actions" | "cloudflare-workers" {
+  const p = currentConfig.platform;
+  return p === "local" || p === "cloudflare-workers" ? p : "github-actions";
 }
 
 function renderPlatformCards(): void {
@@ -876,8 +880,8 @@ function renderSyncBar(): void {
 
 // 拉取云端结果（只读不触发）；silent=启动/定时的后台同步，不展开终端、不抢执行锁
 async function runCiSync(silent: boolean): Promise<void> {
-  // 本地模式下没有云端事实源可拉取；Cloudflare Workers 走 KV，P2 接入
-  if (activePlatform() !== "github-actions") return;
+  // 本地模式下没有云端事实源可拉取；GitHub 走 artifact、Cloudflare Workers 走 KV（ci-sync 内部分流）
+  if (activePlatform() === "local") return;
   const code = await startRunner("ci-sync", [], undefined, { silent });
   if (code >= 0) {
     lastSyncAt = new Date();
@@ -889,15 +893,35 @@ function setupCloudControls(): void {
   document.querySelectorAll<HTMLButtonElement>("#cloud-platform-grid .platform-card").forEach((card) => {
     card.addEventListener("click", async () => {
       const platform = card.dataset.platform;
-      if (!platform || platform === activePlatform() || platform === "cloudflare-workers") return;
+      if (!platform || platform === activePlatform()) return;
       currentConfig.platform = platform;
       await saveCurrentConfig();
       renderPlatformCards();
-      appendTerminalLog(`[CLOUD] ${platform === "local" ? t("cloudSwitchToLocal") : t("cloudSwitchToCloud")}`);
-      // 单执行端联动（ADR 0004）：切 local 停掉仓库定时 CI，切回云端恢复；
-      // gh 不可用时 runner 以非零退出并在终端提示手动处理，不阻塞切换本身
-      void startRunner("ci-checkin", [platform === "local" ? "--workflow-disable" : "--workflow-enable"]);
+      const switchKey = platform === "local" ? "cloudSwitchToLocal" : platform === "cloudflare-workers" ? "cloudSwitchToCf" : "cloudSwitchToCloud";
+      appendTerminalLog(`[CLOUD] ${t(switchKey)}`);
+      // 单执行端联动（ADR 0004）：只有 github-actions 平台保留仓库定时 CI，切走（local/CF）即停
+      void startRunner("ci-checkin", [platform === "github-actions" ? "--workflow-enable" : "--workflow-disable"]);
     });
+  });
+
+  // Cloudflare 部署弹框：粘贴 Token/Account → cf-deploy 代部署（定时沿用定时行的小时/时区）
+  const cfModal = document.getElementById("cf-deploy-modal");
+  document.getElementById("cf-deploy-open")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cfModal?.classList.remove("hidden");
+  });
+  document.getElementById("btn-cf-deploy-close")?.addEventListener("click", () => cfModal?.classList.add("hidden"));
+  document.getElementById("btn-cf-deploy-run")?.addEventListener("click", () => {
+    const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();
+    const account = (document.getElementById("cf-account-input") as HTMLInputElement | null)?.value.trim();
+    const hour = (document.getElementById("schedule-hour") as HTMLSelectElement | null)?.value;
+    const tz = (document.getElementById("schedule-tz") as HTMLSelectElement | null)?.value;
+    if (!token || !account || !hour || !tz) {
+      appendTerminalLog("[CF] 请完整填写 API Token 与 Account ID");
+      return;
+    }
+    cfModal?.classList.add("hidden");
+    void startRunner("cf-deploy", ["--token", token, "--account", account, "--hour", hour, "--tz", tz]);
   });
 
   // 配置教程弹框：GitHub 卡片上的 ⚙ 标识（stopPropagation 避免触发平台切换）
@@ -910,7 +934,7 @@ function setupCloudControls(): void {
   document.getElementById("btn-config-help-close")?.addEventListener("click", () => helpModal?.classList.add("hidden"));
 
   document.getElementById("btn-cloud-refresh")?.addEventListener("click", () => {
-    if (activePlatform() !== "github-actions") {
+    if (activePlatform() === "local") {
       appendTerminalLog("[CLOUD] 本地模式下没有云端结果可同步");
       return;
     }
@@ -940,7 +964,12 @@ function setupCloudControls(): void {
     const tz = tzSelect?.value;
     if (!hour || !tz) return;
     localStorage.setItem("aipunch_schedule", JSON.stringify({ hour, tz }));
-    void startRunner("ci-checkin", ["--set-schedule", hour, tz]);
+    // 平台分流：GitHub 改仓库 workflow 的 cron，CF 改 worker 的 cron 触发器（runner 内各自换算 UTC）
+    if (activePlatform() === "cloudflare-workers") {
+      void startRunner("cf-deploy", ["--cron-only", "--hour", hour, "--tz", tz]);
+    } else {
+      void startRunner("ci-checkin", ["--set-schedule", hour, tz]);
+    }
   });
 
   // 可用性自检复用 ci-checkin --check（gh 版本/登录/仓库权限逐项验证，结果在终端展示）

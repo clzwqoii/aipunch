@@ -200,6 +200,8 @@ fn script_file(script: &str) -> Option<&'static str> {
         "ci-checkin" => "ci-checkin.mjs",
         // 云端结果拉取（只读不触发）：启动/手动刷新同步「今日已签」状态（ADR 0004）
         "ci-sync" => "ci-sync.mjs",
+        // Cloudflare Workers 代部署与立即执行（ADR 0004 P2）
+        "cf-deploy" => "cf-deploy.mjs",
         "trae-extract" => "trae-extract.mjs",
         "trae-login" => "trae-login.mjs",
         "qoder-login" => "qoder-login.mjs",

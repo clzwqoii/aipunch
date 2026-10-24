@@ -1,6 +1,45 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isSynced, pickLatestCompleted, shouldSync } from './ci-sync.ts';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { isSynced, pickLatestCompleted, planKvSync, platformFromConfig, shouldSync } from './ci-sync.ts';
+import type { ResultFile } from '../core/result.ts';
+
+function kvEntry(overrides: Partial<ResultFile> = {}): ResultFile {
+  return {
+    runId: 1729700400000,
+    finishedAt: '2026-10-24T03:00:05Z',
+    total: 2,
+    succeeded: 2,
+    results: [],
+    ...overrides,
+  };
+}
+
+test('planKvSync：无结果/已同步/不比本地新→跳过，新结果→放行（ADR 0004 KV 源）', () => {
+  const entry = kvEntry();
+  assert.deepEqual(planKvSync(null, null, []), { skip: true, reason: 'KV 暂无结果' });
+  assert.deepEqual(planKvSync(JSON.stringify(entry), null, [entry]), { skip: true, reason: '运行 #1729700400000 已同步' });
+  const newerLocal = kvEntry({ finishedAt: '2026-10-24T05:00:00Z', runId: 1 });
+  assert.deepEqual(
+    planKvSync(JSON.stringify(entry), newerLocal, []),
+    { skip: true, reason: '本地已是最新' },
+  );
+  const plan = planKvSync(JSON.stringify(entry), null, []);
+  assert.equal((plan as { skip: boolean }).skip, false, '新结果放行');
+  assert.equal((plan as { entry: ResultFile }).entry.runId, entry.runId);
+});
+
+test('platformFromConfig 从 config.json 读平台，缺失回 github-actions 语义（空串）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aipunch-sync-'));
+  const path = join(dir, 'config.json');
+  writeFileSync(path, JSON.stringify({ accounts: [], platform: 'cloudflare-workers' }));
+  assert.equal(platformFromConfig(dir), 'cloudflare-workers');
+  writeFileSync(path, JSON.stringify({ accounts: [] }));
+  assert.equal(platformFromConfig(dir), '');
+  assert.equal(platformFromConfig(join(dir, 'nope')), '');
+});
 
 test('pickLatestCompleted 只认已完成运行并取最新一条（不限触发来源）', () => {
   const runs = [

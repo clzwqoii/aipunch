@@ -8,10 +8,17 @@
 
 ## 进行中
 
-### P2 Cloudflare Workers 全链路（待开工）
-- 状态：下一步
-- 范围：worker 打包入口、存储抽象、部署 UI、KV 拉取合并进 runCiSync（ADR 0004 的 cloudflare-workers 平台）
-- 建议技能：`tdd`（入口/存储抽象与 adapter 改动先写失败测试，providers 业务代码不动）；`ponytail`（复用 ci-sync/mergeRunResults，不提前抽象多平台层）
+### P2 Cloudflare Workers 全链路（ADR 0004）
+- 状态：代码完成（2026-10-24），226/226 绿 + 双 tsc + cargo check + build:engine（11 bundles 含 worker.mjs/cf-deploy.mjs）+ 浏览器冒烟；**待真实 CF 账号部署实测**
+- 已落地分层：
+  - `cloudflare/worker.ts`：scheduled 入口（KV 读 config → resolveAccounts(注入 env) → runCheckins → 结果写 KV `result` → 轮换票 CF API 自回写 Secrets，KV 不落敏感 token）；打包产物零 node:fs、仅 node:crypto（nodejs_compat）
+  - `cloudflare/cf-api.ts`：REST 封装（cronHourFor 换算在 ci-checkin）——ensureKvNamespace 幂等、deployWorkerRequest multipart（KV 绑定+CF_* Secret 占位+cron）、putSecret/putSchedules/putKvValue、readKvValue、runRequest 信封解析
+  - `runners/ci-sync.ts`：platformFromConfig 分流，CF 平台走 mainKv（planKvSync：无结果/已同步/不新/放行四态，合并复用 mergeRunResults）
+  - `runners/cf-deploy.ts`：--token/--account（env 兜底）代部署全流程（KV→config→worker→Secrets→.env 回写 CF_ACCOUNT_ID/API_TOKEN/KV_NAMESPACE）；`--trigger-now`=临时 cron 下一分钟→轮询 KV result→恢复；`--cron-only`=只改定时
+  - 桌面端：CF 卡解禁+⚙ 部署弹框（token/account 表单，定时沿用定时行值）；activePlatform 三态；一键签到 CF 分流 --trigger-now；切 CF 时 GitHub workflow 自动 disable；「保存定时」CF 分流 --cron-only
+- 待实测（需用户 CF 账号）：粘贴 Token/Account 部署 → 切 CF 平台 → --trigger-now 跑通 → KV result 同步回桌面 → 次日定时自动执行；CPU 10ms 限制下 CodeArts DPoP 等路径实测再放行（ADR 0004）
+- 修订：
+  - 2026-10-24 首次记录
 
 ### P1 云端 CI 菜单与状态同步（ADR 0004）
 - 状态：✅ 已提交上线（80915df，2026-10-24）；四轮手测反馈修完，207/207 绿
