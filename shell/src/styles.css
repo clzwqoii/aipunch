@@ -997,6 +997,17 @@ html[data-theme="light"] .pts-number {
   color: #10b981;
 }
 
+.status-tag.done {
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.36);
+  color: #38bdf8;
+}
+
+.btn-icon-single:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 html[data-theme="light"] .status-tag.ready {
   background: #d1fae5;
   border-color: #6ee7b7;

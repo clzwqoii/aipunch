@@ -400,6 +400,7 @@ interface LastRunBalance {
 interface LastRunEntry {
   provider: string;
   account: string;
+  ok: boolean;
   balance: LastRunBalance | null;
 }
 
@@ -441,7 +442,37 @@ function applyBalances(): void {
     el.textContent = `${t("cardBalance")} ${formatBalance(entry.balance)}`;
     el.hidden = false;
   });
+  applyDoneState();
   renderTotalBalance();
+}
+
+function isTodayRun(): boolean {
+  if (!lastRun?.finishedAt) return false;
+  const then = new Date(lastRun.finishedAt);
+  const now = new Date();
+  return then.toDateString() === now.toDateString();
+}
+
+// 今日已签的供应商：禁用单跑按钮并标注状态
+function applyDoneState(): void {
+  const done = isTodayRun();
+  document.querySelectorAll<HTMLElement>(".provider-card").forEach((card) => {
+    const entry = done
+      ? lastRunEntries.find((r) => r.provider === card.dataset.provider && r.account === card.dataset.account)
+      : undefined;
+    const isDone = !!entry?.ok;
+    const tag = card.querySelector<HTMLElement>(".status-tag");
+    if (tag) {
+      const original = tag.dataset.statusLabel || tag.textContent || "";
+      tag.textContent = isDone ? t("cardDone") : original;
+      tag.classList.toggle("done", isDone);
+    }
+    const play = card.querySelector<HTMLButtonElement>(".btn-icon-single");
+    if (play) {
+      play.disabled = isDone;
+      play.title = isDone ? t("cardDone") : t("cardRunSingle");
+    }
+  });
 }
 
 function renderTotalBalance(): void {
@@ -539,7 +570,7 @@ function renderProviderCards() {
       </div>
 
       <div class="card-middle">
-        <span class="status-tag ${statusClass}">${statusLabel}</span>
+        <span class="status-tag ${statusClass}" data-status-label="${statusLabel}">${statusLabel}</span>
         <span class="points-hint">
           <span class="balance-line" data-balance hidden></span>
           <span class="hint-line">${pointsHintText}</span>

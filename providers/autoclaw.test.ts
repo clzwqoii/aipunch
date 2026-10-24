@@ -16,12 +16,15 @@ function mockAutoClaw(handlers: {
   checkin?: () => Response;
   refresh?: () => Response;
   wallets?: () => Response;
+  taskList?: () => Response;
   onCall?: (url: string, init?: RequestInit) => void;
 }): typeof fetch {
   return (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     handlers.onCall?.(u, init);
     if (u.includes('/userapi/v1/refresh') || u.includes('/userapi/v1/agent-refresh')) return handlers.refresh!();
+    // 状态接口默认不可读，既有用例仍走 claim
+    if (u.includes('/autoclaw-task-list')) return handlers.taskList?.() ?? new Response('{}', { status: 500 });
     if (u.includes('/autoclaw-task-complete')) return handlers.checkin!();
     // 余额接口默认不可读：既有用例不关心余额
     if (u.includes('/agent-assetmgr/api/v2/wallets')) return handlers.wallets?.() ?? new Response('{"code":1}', { status: 200 });
@@ -246,4 +249,39 @@ test('签到结果附带剩余积分（余额查询失败不影响签到）', as
   const result = await autoclaw.checkin(account, ctx);
   assert.equal(result.ok, true);
   assert.match(result.message, /剩余 1234.5 积分/);
+});
+
+test('任务状态已完成时不发 claim', async () => {
+  const calls: string[] = [];
+  const ctx = ctxWith(
+    mockAutoClaw({
+      taskList: () =>
+        new Response(
+          JSON.stringify({ code: 0, data: [{ task_id: 'daily_signin', status: 'completed', reward_points: 400 }] }),
+          { status: 200 },
+        ),
+      onCall: (url) => calls.push(url),
+    }),
+  );
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.match(result.message, /今日已签到/);
+  assert.ok(!calls.some((u) => u.includes('/autoclaw-task-complete')), '已完成时不应再调 claim');
+});
+
+test('任务状态未完成时照常 claim', async () => {
+  const calls: string[] = [];
+  const ctx = ctxWith(
+    mockAutoClaw({
+      taskList: () =>
+        new Response(JSON.stringify({ code: 0, data: [{ task_id: 'daily_signin', status: 'in_progress' }] }), {
+          status: 200,
+        }),
+      checkin: () => CHECKIN_OK(),
+      onCall: (url) => calls.push(url),
+    }),
+  );
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.ok(calls.some((u) => u.includes('/autoclaw-task-complete')), '未完成时应调 claim');
 });

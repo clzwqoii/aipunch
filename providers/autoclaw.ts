@@ -78,6 +78,28 @@ export function parseAutoclawBalance(body: unknown): { remain: number } | null {
   return { remain: Math.round(total * 100) / 100 };
 }
 
+interface SigninStatus {
+  status: string;
+  reward: number;
+}
+
+async function querySigninStatus(token: string, base: string, ctx: RunContext): Promise<SigninStatus | null> {
+  try {
+    const res = await ctx.fetch(`${base}/autoclaw-proxy/proxy/autoclaw-task-list`, { headers: signedHeaders(token) });
+    if (!res.ok) return null;
+    const { data } = await parseJson(res);
+    const tasks = (data?.data as unknown[] | undefined) ?? [];
+    if (!Array.isArray(tasks)) return null;
+    const task = tasks.find((t) => (t as Record<string, unknown>)?.task_id === 'daily_signin') as
+      | Record<string, unknown>
+      | undefined;
+    if (!task) return null;
+    return { status: String(task.status ?? ''), reward: Number(task.reward_points) || 0 };
+  } catch {
+    return null;
+  }
+}
+
 interface BalanceResult {
   balance: { remain: number } | null;
   error?: string; // 仅进 detail（verbose 可见），不影响签到判定
@@ -207,6 +229,18 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
     const balanceResult = await queryBalance(accessToken, baseUrl(), ctx);
     const balance = balanceResult.balance;
     const balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
+
+    // 先查任务状态：已完成就不发 claim（避免重复请求与风控噪声）
+    const signinStatus = await querySigninStatus(accessToken, baseUrl(), ctx);
+    if (signinStatus?.status === 'completed') {
+      const reward = signinStatus.reward > 0 ? `（+${signinStatus.reward} 积分）` : '';
+      return {
+        ok: true,
+        message: `今日已签到（状态确认）${reward}${balanceSuffix}`,
+        detail: { status: 'completed', signinStatus, balance, balanceError: balanceResult.error, rotatedRefreshToken },
+        rotatedRefreshToken,
+      };
+    }
 
     const res = await ctx.fetch(`${baseUrl()}/autoclaw-proxy/proxy/autoclaw-task-complete`, {
       method: 'POST',

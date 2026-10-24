@@ -34,6 +34,7 @@ export const translations = {
 
     cardReady: "已就绪",
     cardBalance: "余额",
+    cardDone: "今日已签",
     cardLinked: "已连接",
     cardUnset: "未配置凭证",
     cardAuthBtn: "一键授权向导",
@@ -163,6 +164,7 @@ export const translations = {
 
     cardReady: "Ready",
     cardBalance: "Balance",
+    cardDone: "Checked in",
     cardLinked: "Linked",
     cardUnset: "Unconfigured",
     cardAuthBtn: "1-Click Auth",
