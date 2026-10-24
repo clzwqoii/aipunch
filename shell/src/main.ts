@@ -42,7 +42,7 @@ const PROVIDER_METAS: Record<
     hintKey: "qoderHint",
   },
   codearts: {
-    name: "Huawei CodeArts",
+    name: "CodeArts",
     iconBg: "linear-gradient(135deg, #c7000b 0%, #ff6b6b 100%)",
     brandChar: "C",
     hintKey: "codeartsHint",
@@ -147,12 +147,12 @@ function setupWindowControls() {
       ) {
         return;
       }
+      // 双击全屏只在顶部拖拽区生效；终端 header 双击不放大（拖拽移动窗口保留在 mousedown 分支）
       if (
         target.closest("[data-tauri-drag-region]") ||
         target.closest(".window-titlebar") ||
         target.closest(".traffic-lights-spacer") ||
-        target.closest(".main-top-drag-bar") ||
-        target.closest(".terminal-header")
+        target.closest(".main-top-drag-bar")
       ) {
         e.stopImmediatePropagation();
         try {
@@ -503,7 +503,8 @@ async function loadLastRun(): Promise<void> {
 
 function formatBalance(b: LastRunBalance): string {
   if (b.unlimited) return "∞";
-  return b.limit && b.limit > 0 ? `${b.remain}/${b.limit}` : `${b.remain}`;
+  // 只展示余额整数：小数与「/额度」不展示（用户口径）
+  return `${Math.round(b.remain)}`;
 }
 
 function applyBalances(): void {
@@ -1175,7 +1176,7 @@ const AUTH_DETAILS: Record<string, ProviderAuthMeta> = {
     envKey: "TRAE_REFRESH_TOKEN",
   },
   codearts: {
-    name: "Huawei CodeArts",
+    name: "CodeArts",
     webUrl: "https://auth.huaweicloud.com",
     envKey: "CODEARTS_REFRESH_TOKEN",
   },

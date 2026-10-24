@@ -19,7 +19,7 @@ export const translations = {
     themeLight: "浅色",
     themeDark: "深色",
 
-    heroTitle: "每日签到总览",
+    heroTitle: "总览",
     heroDesc: "TypeScript Core 原生驱动 · 多平台定时自动签到与凭据轮换",
     heroPtsLabel: "今日签到",
     heroRunAll: "一键签到全部",

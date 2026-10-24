@@ -113,12 +113,12 @@ html[data-theme="light"] {
   --nav-active-border: #cbd5e1;
   --nav-active-text: #0284c7;
 
-  /* 终端暗舱（柔和深蓝石板色，避免纯黑与白底产生刺眼反差） */
-  --terminal-bg: #131c2e;
-  --terminal-header: #1a253b;
-  --terminal-border: #334155;
-  --terminal-text: #e2e8f0;
-  --terminal-row-border: rgba(255, 255, 255, 0.06);
+  /* 终端跟随浅色主题：浅底深字（与整体画布一致） */
+  --terminal-bg: #f8fafc;
+  --terminal-header: #eef2f8;
+  --terminal-border: #cbd5e1;
+  --terminal-text: #334155;
+  --terminal-row-border: rgba(15, 23, 42, 0.06);
 
   /* 品牌强调色 */
   --accent-color: #0284c7;
@@ -806,6 +806,7 @@ html[data-theme="light"] .pts-number {
   color: var(--accent-color);
   display: flex;
   align-items: center;
+  justify-content: center; /* 「执行完成/就绪」等状态文字居中 */
   gap: 6px;
 }
 
