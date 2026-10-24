@@ -87,7 +87,21 @@ async function mainKv(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const raw = await readKvValue(fetch, accountId, token, nsId, 'result');
+  // 国内到 api.cloudflare.com 偶发连接重置：读值重试三次，仍失败按「本轮跳过」处理
+  // （同步失败非致命，下次启动/定时同步自动重试；退出 1 会让状态栏误报「执行结束(代码 1)」）
+  let raw: string | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      raw = await readKvValue(fetch, accountId, token, nsId, 'result');
+      break;
+    } catch (err) {
+      if (attempt === 3) {
+        console.log(`[SYNC] 网络抖动，暂无法连接 Cloudflare（${(err as Error).message.slice(0, 60)}），下次同步自动重试`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
   const cwd = process.env.AIPUNCH_WORK_DIR ?? process.cwd();
   const prev = readJson<ResultFile | null>(join(cwd, '.aipunch-last-run.json'), null);
   const history = readJson<ResultFile[]>(join(cwd, '.aipunch-runs.json'), []);

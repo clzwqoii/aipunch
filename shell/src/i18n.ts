@@ -27,8 +27,8 @@ export const translations = {
     heroRunning: "正在执行签到...",
     heroPrivacy: "本地发现防护",
     heroReady: "就绪待运行",
-    heroFinished: "执行完成 (0)",
-    heroFinishedCode: "执行结束 (代码 {code})",
+    heroFinished: "执行完成",
+    heroFinishedCode: "执行完成",
 
     sectionProvidersTitle: "已接入平台矩阵",
     sectionProvidersSub: "独立开关控制与单平台即时签到调试",
@@ -230,8 +230,8 @@ export const translations = {
     heroRunning: "Running Check-Ins...",
     heroPrivacy: "Privacy Protection",
     heroReady: "Ready to run",
-    heroFinished: "Execution completed (0)",
-    heroFinishedCode: "Finished with code {code}",
+    heroFinished: "Completed",
+    heroFinishedCode: "Completed",
 
     sectionProvidersTitle: "Connected Providers",
     sectionProvidersSub: "Per-account toggle and instant single-provider check-in",
