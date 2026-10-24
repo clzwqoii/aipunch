@@ -20,9 +20,8 @@ export const translations = {
     themeDark: "深色",
 
     heroTitle: "总览",
-    heroDesc: "TypeScript Core 原生驱动 · 多平台定时自动签到与凭据轮换",
     heroPtsLabel: "今日签到",
-    heroRunAll: "一键签到全部",
+    heroRunAll: "一键签到",
     heroAllDone: "今日已全部签到",
     heroRunning: "正在执行签到...",
     heroPrivacy: "本地发现防护",
@@ -223,9 +222,8 @@ export const translations = {
     themeDark: "Dark",
 
     heroTitle: "Daily Check-in Summary",
-    heroDesc: "Powered by TypeScript Core · Multi-platform automated check-in & token rotation",
     heroPtsLabel: "check-ins",
-    heroRunAll: "Run All Check-Ins",
+    heroRunAll: "Check In All",
     heroAllDone: "All checked in",
     heroRunning: "Running Check-Ins...",
     heroPrivacy: "Privacy Protection",

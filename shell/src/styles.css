@@ -287,15 +287,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   color: var(--text-primary);
 }
 
-.brand-tag {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--accent-gradient);
-  color: #ffffff;
-  letter-spacing: 0.4px;
-}
 
 .brand-sub {
   font-size: 10.5px;
@@ -771,9 +762,6 @@ html[data-theme="light"] .pts-number {
   filter: brightness(0.96);
 }
 
-.btn-sparkle {
-  font-size: 12px;
-}
 
 /* Hero 右侧内嵌状态盒 */
 .hero-right {
