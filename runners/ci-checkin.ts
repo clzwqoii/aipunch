@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ResultFile } from '../core/result.ts';
@@ -188,7 +188,14 @@ async function saveLastRun(runId: number, runUrl: string | undefined): Promise<v
   try {
     await gh(['run', 'download', String(runId), '-n', 'checkin-result', '-D', dir]);
     const data = JSON.parse(readFileSync(join(dir, 'checkin-result.json'), 'utf8')) as ResultFile;
-    writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify({ ...data, runUrl }, null, 1));
+    const entry = { ...data, runUrl };
+    writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify(entry, null, 1));
+    // 历史记录：保留最近 50 次，供桌面端「执行记录」页面展示
+    const historyPath = join(process.cwd(), '.aipunch-runs.json');
+    const history = existsSync(historyPath)
+      ? (JSON.parse(readFileSync(historyPath, 'utf8')) as unknown[])
+      : [];
+    writeFileSync(historyPath, JSON.stringify([entry, ...history].slice(0, 50), null, 1));
   } catch {
     /* artifact 缺失（旧运行/上传失败）时跳过 */
   } finally {

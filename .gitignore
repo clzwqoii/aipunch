@@ -6,3 +6,4 @@ config.local.json
 *.key
 *.key.pub
 .aipunch-last-run.json
+.aipunch-runs.json

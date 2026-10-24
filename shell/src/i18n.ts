@@ -59,7 +59,8 @@ export const translations = {
 
     historyTitle: "执行记录",
     historySub: "历史签到汇总、收益到账与耗时明细",
-    historyEmpty: "执行记录即将上线：每次签到的过程与结果请看右侧实时终端。",
+    historyEmpty: "暂无执行记录：点击「一键签到全部」或等待定时任务。",
+    credValid: "凭证有效",
 
     credTitle: "凭证一键导入向导",
     credSub: "六大官方授权向导，零手动抓包配置",
@@ -113,8 +114,8 @@ export const translations = {
     privacySub: "安全边界与本机登录态探测策略",
     privacyItemTitle: "禁止本地凭证扫描 (CHECKIN_NO_DISCOVERY)",
     privacyItemDesc: "开启后，完全禁止桌面壳探测本机其他桌面应用的登录文件，仅依赖显式配置的环境变量。",
-    rootTitle: "项目根目录",
-    rootDesc: "桌面壳在此目录执行 npm run checkin，并读写 config.json 与 .env。",
+    rootTitle: "执行引擎目录",
+    rootDesc: "签到由该目录下的 Node 脚本执行，需包含 config.json 与 package.json。安装包只含界面，不含执行引擎。",
     rootSave: "保存并重载",
 
     tabBrowser: "🌐 官方网页/浏览器登录",
@@ -193,7 +194,8 @@ export const translations = {
 
     historyTitle: "Run History",
     historySub: "Execution summaries, credit records, and duration details",
-    historyEmpty: "Run history is coming soon — follow each run in the live terminal on the right.",
+    historyEmpty: "No runs yet — click Run All or wait for the scheduled run.",
+    credValid: "Valid",
 
     credTitle: "Credentials Import",
     credSub: "Six official authentication wizards, zero manual packet inspection",
@@ -247,8 +249,8 @@ export const translations = {
     privacySub: "Security boundary and credential discovery control",
     privacyItemTitle: "Disable Credential Discovery (CHECKIN_NO_DISCOVERY)",
     privacyItemDesc: "When enabled, disables local disk discovery of desktop client session files, strictly relying on environment variables.",
-    rootTitle: "Project Root",
-    rootDesc: "The shell runs npm run checkin in this directory and reads/writes config.json and .env.",
+    rootTitle: "Engine directory",
+    rootDesc: "Check-ins run via the Node scripts in this directory (must contain config.json and package.json). The app bundle only ships the UI, not the engine.",
     rootSave: "Save & Reload",
 
     tabBrowser: "🌐 Official Web / Browser",

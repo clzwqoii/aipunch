@@ -1612,3 +1612,72 @@ input:checked + .slider:before {
   line-height: 1.6;
   color: var(--text-secondary);
 }
+
+/* 执行记录 */
+.history-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--bg-recessed);
+  margin-bottom: 10px;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.history-head strong {
+  font-weight: 600;
+}
+
+.history-head span {
+  color: var(--text-secondary);
+}
+
+.history-link {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #38bdf8;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.history-rows {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.history-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.history-row.ok .history-acct {
+  color: #34d399;
+}
+
+.history-row.fail .history-acct {
+  color: #f87171;
+}
+
+.history-acct {
+  min-width: 140px;
+  font-weight: 600;
+}
+
+.history-msg {
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.cred-valid {
+  margin-left: auto;
+  font-size: 11px;
+  color: #10b981;
+}

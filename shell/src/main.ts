@@ -401,11 +401,20 @@ interface LastRunEntry {
   provider: string;
   account: string;
   ok: boolean;
+  message: string;
   balance: LastRunBalance | null;
 }
 
 let lastRunEntries: LastRunEntry[] = [];
 let lastRun: { succeeded?: number; total?: number; finishedAt?: string; runUrl?: string } | null = null;
+interface RunRecord {
+  finishedAt?: string;
+  succeeded?: number;
+  total?: number;
+  runUrl?: string;
+  results?: LastRunEntry[];
+}
+let runHistory: RunRecord[] = [];
 
 // 结构化结果由 ci-checkin 从 CI artifact 写入，卡片余额只读这份数据
 async function loadLastRun(): Promise<void> {
@@ -415,11 +424,16 @@ async function loadLastRun(): Promise<void> {
     );
     lastRun = data ?? null;
     lastRunEntries = Array.isArray(data?.results) ? data.results : [];
+    const history = await invoke<RunRecord[] | null>("get_run_history");
+    runHistory = Array.isArray(history) ? history : [];
   } catch {
     lastRun = null;
     lastRunEntries = [];
+    runHistory = [];
   }
   applyBalances();
+  renderHistory();
+  applyCredentialState();
 }
 
 function formatBalance(b: LastRunBalance): string {
@@ -444,6 +458,73 @@ function applyBalances(): void {
   });
   applyDoneState();
   renderTotalBalance();
+}
+
+const CRED_BRAND_PROVIDER: Record<string, string> = {
+  qoder: "qoder",
+  trae: "trae",
+  codearts: "codearts",
+  autoclaw: "autoclaw-intl",
+  workbuddy: "workbuddy",
+  "autoclaw-cn": "autoclaw",
+};
+
+// 最近一次运行成功即视为凭证有效，禁用重复导入
+function applyCredentialState(): void {
+  document.querySelectorAll<HTMLElement>(".wizard-card[data-brand]").forEach((card) => {
+    const provider = CRED_BRAND_PROVIDER[card.dataset.brand ?? ""];
+    const valid = !!provider && lastRunEntries.some((r) => r.provider === provider && r.ok);
+    const btn = card.querySelector<HTMLButtonElement>(".wizard-action-btn");
+    if (btn) {
+      btn.disabled = valid;
+      btn.title = valid ? t("credValid") : "";
+    }
+    const badge = card.querySelector<HTMLElement>(".cred-valid");
+    if (valid && !badge) {
+      const span = document.createElement("span");
+      span.className = "cred-valid";
+      span.textContent = `✓ ${t("credValid")}`;
+      card.querySelector(".wizard-header")?.appendChild(span);
+    } else if (!valid && badge) {
+      badge.remove();
+    }
+  });
+}
+
+function renderHistory(): void {
+  const container = document.getElementById("history-container");
+  if (!container) return;
+  if (runHistory.length === 0) {
+    container.innerHTML = `<div class="empty-state">${escapeHtml(t("historyEmpty"))}</div>`;
+    return;
+  }
+  container.innerHTML = "";
+  for (const run of runHistory.slice(0, 20)) {
+    const item = document.createElement("div");
+    item.className = "history-item";
+    const when = run.finishedAt ? new Date(run.finishedAt).toLocaleString("zh-CN") : "";
+    const head = document.createElement("div");
+    head.className = "history-head";
+    head.innerHTML = `<strong>${escapeHtml(when)}</strong><span>${run.succeeded ?? 0}/${run.total ?? 0} 成功</span>`;
+    if (run.runUrl) {
+      const link = document.createElement("button");
+      link.className = "history-link";
+      link.textContent = "查看运行 →";
+      link.addEventListener("click", () => void invoke("open_external", { target: run.runUrl }));
+      head.appendChild(link);
+    }
+    item.appendChild(head);
+    const rows = document.createElement("div");
+    rows.className = "history-rows";
+    for (const r of run.results ?? []) {
+      const row = document.createElement("div");
+      row.className = `history-row ${r.ok ? "ok" : "fail"}`;
+      row.innerHTML = `<span class="history-acct">${escapeHtml(r.provider)}/${escapeHtml(r.account)}</span><span class="history-msg">${escapeHtml(r.message)}</span>`;
+      rows.appendChild(row);
+    }
+    item.appendChild(rows);
+    container.appendChild(item);
+  }
 }
 
 function isTodayRun(): boolean {
