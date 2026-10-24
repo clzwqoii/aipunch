@@ -1022,6 +1022,17 @@ html[data-theme="light"] .status-tag.linked {
   color: #f59e0b;
 }
 
+.status-tag.auth-invalid {
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.36);
+  color: #f87171;
+}
+
+html[data-theme="light"] .status-tag.auth-invalid {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
 html[data-theme="light"] .status-tag.unconfigured {
   background: #fef3c7;
   border-color: #fcd34d;

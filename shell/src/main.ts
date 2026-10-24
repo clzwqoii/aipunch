@@ -716,8 +716,21 @@ function renderProviderCards() {
       (acc.tokenEnv && configuredEnvKeys.includes(acc.tokenEnv));
 
     const isEnabled = acc.enabled !== false;
-    const statusClass = hasCreds ? (isEnabled ? "ready" : "linked") : "unconfigured";
-    const statusLabel = hasCreds ? (isEnabled ? t("cardReady") : t("cardLinked")) : t("cardUnset");
+    // 授权状态四态：凭证缺失=未授权；最近一次运行成功=授权有效；
+    // 失败且消息命中凭证失效特征=需重新授权；其他失败=待确认；无结果=待验证
+    const lastResult = lastRunEntries.find((r) => r.provider === acc.provider && r.account === acc.name);
+    const authState = (() => {
+      if (!hasCreds) return { cls: "unconfigured", key: "cardUnset" as const };
+      if (!lastResult) return { cls: "linked", key: "authPending" as const };
+      if (lastResult.ok) return { cls: "ready", key: "authValid" as const };
+      if (/401|403|invalid|expired|失效|过期|未设置|缺少/i.test(lastResult.message)) {
+        return { cls: "auth-invalid", key: "authInvalid" as const };
+      }
+      return { cls: "linked", key: "authCheck" as const };
+    })();
+    const statusClass = authState.cls;
+    const statusLabel = t(authState.key);
+    void isEnabled;
     const pointsHintText = t(meta.hintKey);
 
     const card = document.createElement("div");
