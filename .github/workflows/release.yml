@@ -169,6 +169,23 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: npm --prefix shell run tauri build -- ${{ matrix.args }}
 
+      - name: 冒烟验证内置引擎（Windows）
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $node = Get-ChildItem -Path shell/src-tauri/target -Recurse -Filter node.exe |
+            Where-Object { $_.DirectoryName -match 'release\\resources$' } | Select-Object -First 1
+          if (-not $node) { throw '未在构建产物中找到 resources\node.exe' }
+          $engine = Join-Path $node.DirectoryName 'engine\cli.mjs'
+          if (-not (Test-Path $engine)) { throw '未找到 engine\cli.mjs' }
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          Copy-Item config.json smoke\config.json
+          Push-Location smoke
+          try { $out = & $node.FullName $engine --dry-run 2>&1 | Out-String }
+          finally { Pop-Location }
+          Write-Output $out
+          if ($out -notmatch '\[dry-run\]') { throw '内置引擎冒烟失败' }
+
       - name: 上传构建产物
         if: github.event_name == 'workflow_dispatch' && !inputs.publish
         uses: actions/upload-artifact@v4
