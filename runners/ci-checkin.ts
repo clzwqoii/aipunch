@@ -108,9 +108,11 @@ export function workflowToggleArgs(action: 'enable' | 'disable', repo: string): 
   return ['workflow', action, WORKFLOW, '--repo', repo];
 }
 
-// `gh workflow view checkin.yml --yaml` 的输出形如 "- name: ...\n  state: active|disabled\n"
-export function workflowStateFromView(yaml: string): string {
-  return /^\s*-?\s*state:\s*(\w+)\s*$/m.exec(yaml)?.[1] ?? 'unknown';
+// REST `actions/workflows/:file` 的 state 值（active / disabled / disabled_inactivity …）翻成可读标签
+export function workflowStateLabel(state: string): string {
+  if (state === 'active') return '定时运行中';
+  if (state.startsWith('disabled')) return '已禁用（云端不执行）';
+  return '状态未知';
 }
 
 // 时区在指定时刻的 UTC 偏移（小时，东八区=8）：当地时刻 = UTC + offset
@@ -287,11 +289,12 @@ async function main(): Promise<void> {
     return;
   }
   if (args.check) {
-    let state = 'unknown';
+    let state = '';
     try {
-      state = workflowStateFromView(await gh(['workflow', 'view', WORKFLOW, '--repo', repo, '--yaml']));
+      // workflow 启停状态来自 REST state 字段；gh workflow view --yaml 输出的是文件内容，不含 state
+      state = (await gh(['api', `repos/${repo}/actions/workflows/${WORKFLOW}`, '--jq', '.state'])).trim();
     } catch {
-      /* workflow 尚未出现在 Actions 列表等场景不阻塞环境检查 */
+      /* API 不可达等场景不阻塞环境检查（label 会显示状态未知） */
     }
     let schedule = '';
     try {
@@ -306,8 +309,7 @@ async function main(): Promise<void> {
     } catch {
       /* 定时读回失败不阻塞环境检查 */
     }
-    const stateLabel = state === 'active' ? '定时运行中' : state.startsWith('disabled') ? '已禁用（云端不执行）' : '状态未知';
-    console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录 · ${stateLabel}${schedule}`);
+    console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录 · ${workflowStateLabel(state)}${schedule}`);
     return;
   }
   const since = Date.now() - 60_000; // 容忍时钟偏差

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkGh, configRepo, cronHourFor, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun, replaceCronLine, scheduleFromCron, workflowStateFromView, workflowToggleArgs } from './ci-checkin.ts';
+import { checkGh, configRepo, cronHourFor, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun, replaceCronLine, scheduleFromCron, workflowStateLabel, workflowToggleArgs } from './ci-checkin.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,12 +54,11 @@ test('workflowToggleArgs 生成 gh workflow enable/disable 命令', () => {
   assert.deepEqual(workflowToggleArgs('enable', 'o/r'), ['workflow', 'enable', 'checkin.yml', '--repo', 'o/r']);
 });
 
-test('workflowStateFromView 从 workflow view --yaml 输出解析启停状态', () => {
-  const yaml = ['- name: checkin', '  id: 12345678', '  path: .github/workflows/checkin.yml', '  state: disabled'].join('\n');
-  assert.equal(workflowStateFromView(yaml), 'disabled');
-  assert.equal(workflowStateFromView('- state: active'), 'active');
-  // 输出缺失 state 时给可显示的兜底值，不抛错（检查路径不因此中断）
-  assert.equal(workflowStateFromView('no state here'), 'unknown');
+test('workflowStateLabel 把 REST state 值翻成可读状态（含 DST 无关的 disabled 变体）', () => {
+  assert.equal(workflowStateLabel('active'), '定时运行中');
+  assert.equal(workflowStateLabel('disabled'), '已禁用（云端不执行）');
+  assert.equal(workflowStateLabel('disabled_inactivity'), '已禁用（云端不执行）');
+  assert.equal(workflowStateLabel(''), '状态未知');
 });
 
 test('checkGh 未安装时给出安装与登录指引', async () => {
