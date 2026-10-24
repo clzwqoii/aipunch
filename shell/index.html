@@ -322,6 +322,23 @@
     </div>
 
     <!-- 弹窗：凭据输入向导模态框 -->
+    <div id="update-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h4 id="update-modal-title">发现新版本</h4>
+          <button id="btn-update-modal-close" class="modal-close-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p id="update-modal-version" class="update-version"></p>
+          <pre id="update-modal-notes" class="update-notes"></pre>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-update-later" class="btn-secondary">稍后</button>
+          <button id="btn-update-install" class="btn-primary">下载并安装</button>
+        </div>
+      </div>
+    </div>
+
     <div id="modal-container" class="modal-backdrop hidden">
       <div class="modal-card">
         <div class="modal-header">

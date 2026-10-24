@@ -1064,8 +1064,24 @@ function setupUpdaterControls() {
   const checkBtn = document.getElementById("btn-check-update");
   const btnText = document.getElementById("update-btn-text");
   const statusMsg = document.getElementById("update-status-msg");
+  const modal = document.getElementById("update-modal");
 
-  async function performCheck(manual = false) {
+  const closeModal = (): void => modal?.classList.add("hidden");
+
+  function openUpdateModal(): void {
+    if (!pendingUpdate) return;
+    const versionEl = document.getElementById("update-modal-version");
+    const notesEl = document.getElementById("update-modal-notes");
+    const titleEl = document.getElementById("update-modal-title");
+    const installBtn = document.getElementById("btn-update-install");
+    if (titleEl) titleEl.textContent = t("updateDialogTitle");
+    if (versionEl) versionEl.textContent = `v${pendingUpdate.version}`;
+    if (notesEl) notesEl.textContent = pendingUpdate.body?.trim() || t("updateFound", { version: pendingUpdate.version });
+    if (installBtn) installBtn.textContent = t("updateInstall", { version: pendingUpdate.version });
+    modal?.classList.remove("hidden");
+  }
+
+  async function performCheck(manual = false): Promise<void> {
     if (isUpdating) return;
     if (manual) {
       checkBtn?.classList.add("loading");
@@ -1081,12 +1097,13 @@ function setupUpdaterControls() {
       const update = await check();
       if (update && update.available) {
         pendingUpdate = update;
-        if (btnText) btnText.textContent = t("updateFound", { version: update.version });
+        if (btnText) btnText.textContent = t("updateInstall", { version: update.version });
         if (statusMsg) {
           statusMsg.className = "update-status-msg success";
-          statusMsg.textContent = `v${update.version} (${update.body || "New release"})`;
+          statusMsg.textContent = t("updateFound", { version: update.version });
           statusMsg.classList.remove("hidden");
         }
+        if (manual) openUpdateModal();
       } else {
         pendingUpdate = null;
         if (manual) {
@@ -1105,12 +1122,13 @@ function setupUpdaterControls() {
     } catch (err) {
       console.warn("Update check failed:", err);
       if (manual) {
+        const reason = String((err as Error).message || err).slice(0, 120);
         if (btnText) btnText.textContent = t("checkUpdate");
         if (statusMsg) {
           statusMsg.className = "update-status-msg error";
-          statusMsg.textContent = t("updateFailed");
+          statusMsg.textContent = `${t("updateFailed")}：${reason}`;
           statusMsg.classList.remove("hidden");
-          setTimeout(() => statusMsg?.classList.add("hidden"), 3500);
+          setTimeout(() => statusMsg?.classList.add("hidden"), 6000);
         }
       }
     } finally {
@@ -1118,50 +1136,61 @@ function setupUpdaterControls() {
     }
   }
 
-  checkBtn?.addEventListener("click", async () => {
-    if (pendingUpdate && pendingUpdate.available) {
-      isUpdating = true;
-      if (btnText) btnText.textContent = t("updateDownloading", { percent: "0" });
+  async function startInstall(): Promise<void> {
+    if (!pendingUpdate || isUpdating) return;
+    isUpdating = true;
+    closeModal();
+    if (btnText) btnText.textContent = t("updateDownloading", { percent: "0" });
+    if (statusMsg) {
+      statusMsg.className = "update-status-msg";
+      statusMsg.textContent = t("updateDownloading", { percent: "0" });
+      statusMsg.classList.remove("hidden");
+    }
+
+    let downloaded = 0;
+    let contentLength = 0;
+
+    try {
+      await pendingUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          contentLength = event.data.contentLength || 0;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          const pct = contentLength ? Math.round((downloaded / contentLength) * 100) : 50;
+          if (btnText) btnText.textContent = t("updateDownloading", { percent: String(pct) });
+          if (statusMsg) statusMsg.textContent = t("updateDownloading", { percent: String(pct) });
+        } else if (event.event === "Finished") {
+          if (btnText) btnText.textContent = t("updateReady");
+          if (statusMsg) {
+            statusMsg.className = "update-status-msg success";
+            statusMsg.textContent = t("updateReady");
+          }
+        }
+      });
+
+      if (statusMsg) statusMsg.textContent = "重启中 / Restarting...";
+      await invoke("restart_app");
+    } catch (err) {
+      console.error("Failed to install update:", err);
+      isUpdating = false;
       if (statusMsg) {
-        statusMsg.className = "update-status-msg";
-        statusMsg.textContent = t("updateDownloading", { percent: "0" });
+        statusMsg.className = "update-status-msg error";
+        statusMsg.textContent = `更新失败: ${err}`;
         statusMsg.classList.remove("hidden");
       }
-
-      let downloaded = 0;
-      let contentLength = 0;
-
-      try {
-        await pendingUpdate.downloadAndInstall((event) => {
-          if (event.event === "Started") {
-            contentLength = event.data.contentLength || 0;
-          } else if (event.event === "Progress") {
-            downloaded += event.data.chunkLength;
-            const pct = contentLength ? Math.round((downloaded / contentLength) * 100) : 50;
-            if (btnText) btnText.textContent = t("updateDownloading", { percent: String(pct) });
-            if (statusMsg) statusMsg.textContent = t("updateDownloading", { percent: String(pct) });
-          } else if (event.event === "Finished") {
-            if (btnText) btnText.textContent = t("updateReady");
-            if (statusMsg) {
-              statusMsg.className = "update-status-msg success";
-              statusMsg.textContent = t("updateReady");
-            }
-          }
-        });
-
-        if (statusMsg) statusMsg.textContent = "重启中 / Restarting...";
-        await invoke("restart_app");
-      } catch (err) {
-        console.error("Failed to install update:", err);
-        isUpdating = false;
-        if (statusMsg) {
-          statusMsg.className = "update-status-msg error";
-          statusMsg.textContent = `更新失败: ${err}`;
-        }
-      }
-    } else {
-      await performCheck(true);
     }
+  }
+
+  checkBtn?.addEventListener("click", () => {
+    if (pendingUpdate && pendingUpdate.available) void startInstall();
+    else void performCheck(true);
+  });
+
+  document.getElementById("btn-update-install")?.addEventListener("click", () => void startInstall());
+  document.getElementById("btn-update-later")?.addEventListener("click", closeModal);
+  document.getElementById("btn-update-modal-close")?.addEventListener("click", closeModal);
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) closeModal();
   });
 
   // 静默启动检查（延迟 3 秒，避免阻塞应用初始化）
