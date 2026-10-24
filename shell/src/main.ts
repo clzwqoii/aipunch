@@ -417,6 +417,27 @@ interface RunRecord {
 let runHistory: RunRecord[] = [];
 
 // 结构化结果由 ci-checkin 从 CI artifact 写入，卡片余额只读这份数据
+// 内置引擎模式：显示数据目录并禁止修改（执行引擎随安装包提供）
+async function loadRuntimeInfo(): Promise<void> {
+  try {
+    const info = await invoke<{ bundled: boolean; workDir: string }>("get_runtime_info");
+    const input = document.getElementById("input-project-root") as HTMLInputElement | null;
+    const save = document.getElementById("btn-save-project-root") as HTMLButtonElement | null;
+    if (!info.bundled) return;
+    if (input) {
+      input.value = info.workDir;
+      input.disabled = true;
+    }
+    if (save) save.disabled = true;
+    const title = document.getElementById("root-title");
+    const desc = document.getElementById("root-desc");
+    if (title) title.textContent = t("rootDataTitle");
+    if (desc) desc.textContent = t("rootDataDesc");
+  } catch {
+    /* 旧版后端无该命令时保持原有行为 */
+  }
+}
+
 async function loadLastRun(): Promise<void> {
   try {
     const data = await invoke<{ results?: LastRunEntry[]; succeeded?: number; total?: number; finishedAt?: string; runUrl?: string } | null>(
@@ -592,6 +613,7 @@ async function loadConfigAndState() {
 
     renderProviderCards();
     void loadLastRun();
+    void loadRuntimeInfo();
     updateActiveBadge();
   } catch (e) {
     appendTerminalLog(`[ERROR] Failed to load config: ${e}`);

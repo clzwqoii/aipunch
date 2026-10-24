@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkGh, dispatchArgs, exitCodeFor, filterResultLogs, parseCiArgs, pickRun } from './ci-checkin.ts';
+import { checkGh, configRepo, dispatchArgs, exitCodeFor, filterResultLogs, parseCiArgs, pickRun } from './ci-checkin.ts';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 test('parseCiArgs 解析 provider/account 与 --check', () => {
   assert.deepEqual(parseCiArgs([]), {});
@@ -14,7 +17,7 @@ test('checkGh 未安装时给出安装与登录指引', async () => {
   const run = async () => {
     throw new Error('gh --version 失败: spawn gh ENOENT');
   };
-  await assert.rejects(checkGh(run), /brew install gh/);
+  await assert.rejects(checkGh(run, 'o/r'), /brew install gh/);
 });
 
 test('checkGh 未登录时提示 gh auth login', async () => {
@@ -22,7 +25,7 @@ test('checkGh 未登录时提示 gh auth login', async () => {
     if (args[0] === '--version') return 'gh version 2.60.0 (2026-01-01)';
     throw new Error('gh auth status 失败: not logged in');
   };
-  await assert.rejects(checkGh(run), /gh auth login/);
+  await assert.rejects(checkGh(run, 'o/r'), /gh auth login/);
 });
 
 test('checkGh 目录不是 GitHub 仓库时提示检查 remote 与权限', async () => {
@@ -31,7 +34,7 @@ test('checkGh 目录不是 GitHub 仓库时提示检查 remote 与权限', async
     if (args[0] === 'auth') return 'Logged in to github.com';
     throw new Error('gh repo view 失败: not a git repository');
   };
-  await assert.rejects(checkGh(run), /GitHub 仓库|权限/);
+  await assert.rejects(checkGh(run, 'o/r'), /仓库|权限/);
 });
 
 test('checkGh 通过时返回版本与仓库', async () => {
@@ -40,19 +43,20 @@ test('checkGh 通过时返回版本与仓库', async () => {
     if (args[0] === 'auth') return 'Logged in to github.com account clzwqoii';
     return '{"nameWithOwner":"clzwqoii/aipunch"}';
   };
-  assert.deepEqual(await checkGh(run), { version: 'gh version 2.60.0 (2026-01-01)', repo: 'clzwqoii/aipunch' });
+  assert.deepEqual(await checkGh(run, 'clzwqoii/aipunch'), { version: 'gh version 2.60.0 (2026-01-01)', repo: 'clzwqoii/aipunch' });
 });
 
-test('dispatchArgs 只带非空过滤器', () => {
-  assert.deepEqual(dispatchArgs({}), ['workflow', 'run', 'checkin.yml']);
-  assert.deepEqual(dispatchArgs({ provider: 'trae' }), [
+test('dispatchArgs 带仓库与过滤器', () => {
+  assert.deepEqual(dispatchArgs({}, 'o/r'), ['workflow', 'run', 'checkin.yml', '--repo', 'o/r']);
+  assert.deepEqual(dispatchArgs({ provider: 'trae' }, 'o/r'), [
     'workflow',
     'run',
     'checkin.yml',
+    '--repo',
+    'o/r',
     '-f',
     'provider=trae',
   ]);
-  assert.deepEqual(dispatchArgs({ account: 'main' }), ['workflow', 'run', 'checkin.yml', '-f', 'account=main']);
 });
 
 test('pickRun 只认触发时间之后的 workflow_dispatch 运行', () => {
@@ -87,4 +91,11 @@ test('exitCodeFor 按结论给退出码', () => {
   assert.equal(exitCodeFor('success'), 0);
   assert.equal(exitCodeFor('failure'), 1);
   assert.equal(exitCodeFor(null), 1);
+});
+
+test('configRepo 从 config.json 读取 repo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aipunch-repo-'));
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ repo: 'o/r', accounts: [] }));
+  assert.equal(configRepo(dir), 'o/r');
+  rmSync(dir, { recursive: true, force: true });
 });

@@ -80,6 +80,7 @@ if [[ -f "$KEY_FILE" ]]; then
   export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_FILE")"
 fi
 
+npm run build:engine
 npm --prefix shell run tauri build
 
 BUNDLE_DIR="shell/src-tauri/target/release/bundle"

@@ -121,6 +121,104 @@ fn scan_dir(dir: &Path, depth: u32, budget: &mut usize) -> Option<PathBuf> {
     None
 }
 
+// ---- 内置引擎：安装包 Resources 下带 node + 签到脚本；存在时不再依赖仓库 ----
+fn bundled_engine_root(app: &AppHandle) -> Option<PathBuf> {
+    let resource_dir = app.path().resource_dir().ok()?;
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+    for base in [resource_dir.join("resources"), resource_dir] {
+        if base.join("engine").join("cli.mjs").is_file() && base.join(node_name).is_file() {
+            return Some(base);
+        }
+    }
+    None
+}
+
+fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("无法定位应用数据目录: {}", e))?
+        .join("engine-data");
+    fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
+    Ok(dir)
+}
+
+// 首次使用：写入默认 config.json；若检测到旧的仓库模式数据，迁移 .env 与结果文件
+fn seed_engine_data(app: &AppHandle, engine: &Path, dir: &Path) {
+    let config = dir.join("config.json");
+    let default_config = engine.join("engine").join("config.default.json");
+    if !config.exists() {
+        let _ = fs::copy(&default_config, &config);
+    } else if let (Ok(existing), Ok(default)) = (
+        fs::read_to_string(&config),
+        fs::read_to_string(&default_config),
+    ) {
+        // 旧数据目录补上新增的顶层字段（如 repo），用户自定义账号配置保持不变
+        if let (Ok(mut value), Ok(default_value)) = (
+            serde_json::from_str::<serde_json::Value>(&existing),
+            serde_json::from_str::<serde_json::Value>(&default),
+        ) {
+            if value.get("repo").is_none() {
+                if let Some(repo) = default_value.get("repo") {
+                    value["repo"] = repo.clone();
+                    if let Ok(text) = serde_json::to_string_pretty(&value) {
+                        let _ = atomic_write(&config, &text);
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(legacy) = find_project_root(app) {
+        for name in [".env", ".aipunch-last-run.json", ".aipunch-runs.json"] {
+            let src = legacy.join(name);
+            let dst = dir.join(name);
+            if !dst.exists() && src.is_file() {
+                let _ = fs::copy(&src, &dst);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&dst, fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
+    }
+}
+
+fn work_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(engine) = bundled_engine_root(app) {
+        let dir = app_data_dir(app)?;
+        seed_engine_data(app, &engine, &dir);
+        Ok(dir)
+    } else {
+        find_project_root(app)
+    }
+}
+
+fn script_file(script: &str) -> Option<&'static str> {
+    Some(match script {
+        "checkin" => "cli.mjs",
+        "ci-checkin" => "ci-checkin.mjs",
+        "trae-extract" => "trae-extract.mjs",
+        "trae-login" => "trae-login.mjs",
+        "qoder-login" => "qoder-login.mjs",
+        "codearts-login" => "codearts-login.mjs",
+        "autoclaw-login" => "autoclaw-login.mjs",
+        "autoclaw-intl-login" => "autoclaw-intl-login.mjs",
+        "login" => "login.mjs",
+        _ => return None,
+    })
+}
+
+#[tauri::command]
+fn get_runtime_info(app: AppHandle) -> Result<serde_json::Value, String> {
+    let bundled = bundled_engine_root(&app).is_some();
+    let dir = work_dir(&app)?;
+    Ok(serde_json::json!({
+        "bundled": bundled,
+        "workDir": dir.display().to_string(),
+    }))
+}
+
 fn persist_project_root(app: &AppHandle, path: &Path) -> Result<(), String> {
     let root_file = app_root_file(app)?;
     if let Some(parent) = root_file.parent() {
@@ -132,11 +230,14 @@ fn persist_project_root(app: &AppHandle, path: &Path) -> Result<(), String> {
 
 #[tauri::command]
 fn get_project_root(app: AppHandle) -> Result<String, String> {
-    find_project_root(&app).map(|path| path.display().to_string())
+    work_dir(&app).map(|path| path.display().to_string())
 }
 
 #[tauri::command]
 fn set_project_root(app: AppHandle, path: String) -> Result<String, String> {
+    if bundled_engine_root(&app).is_some() {
+        return Err("内置引擎模式无需设置引擎目录，凭证与记录保存在应用数据目录".into());
+    }
     let path = PathBuf::from(path.trim());
     let canonical = path
         .canonicalize()
@@ -150,7 +251,7 @@ fn set_project_root(app: AppHandle, path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn get_config(app: AppHandle) -> Result<String, String> {
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     let config_path = root.join("config.json");
     if !config_path.exists() {
         return Err("config.json not found".to_string());
@@ -161,7 +262,7 @@ fn get_config(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn get_run_history(app: AppHandle) -> Result<serde_json::Value, String> {
     // ci-checkin 每次运行追加一条，最多 50 条；不存在时返回空数组
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     let path = root.join(".aipunch-runs.json");
     if !path.exists() {
         return Ok(serde_json::json!([]));
@@ -173,7 +274,7 @@ fn get_run_history(app: AppHandle) -> Result<serde_json::Value, String> {
 #[tauri::command]
 fn get_last_run(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
     // ci-checkin 下载 CI 产物后写入，卡片余额据此展示；不存在时返回 null
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     let path = root.join(".aipunch-last-run.json");
     if !path.exists() {
         return Ok(None);
@@ -189,7 +290,7 @@ fn save_config(app: AppHandle, content: String) -> Result<(), String> {
     // Validate that content is valid JSON
     let _v: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {}", e))?;
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     let config_path = root.join("config.json");
     atomic_write(&config_path, &content)
 }
@@ -224,7 +325,7 @@ fn configured_keys(
 
 #[tauri::command]
 fn get_env_status(app: AppHandle, keys: Vec<String>) -> Result<Vec<String>, String> {
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     let file_keys = fs::read_to_string(root.join(".env"))
         .map(|content| parse_env_keys(&content))
         .unwrap_or_default();
@@ -235,7 +336,7 @@ fn get_env_status(app: AppHandle, keys: Vec<String>) -> Result<Vec<String>, Stri
 
 #[tauri::command]
 fn get_privacy_mode(app: AppHandle) -> Result<bool, String> {
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     let env_path = root.join(".env");
     if env_path.exists() {
         if let Ok(content) = fs::read_to_string(&env_path) {
@@ -257,7 +358,7 @@ fn get_privacy_mode(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 fn set_privacy_mode(app: AppHandle, enabled: bool) -> Result<(), String> {
     let _guard = ENV_LOCK.lock().map_err(|_| "环境变量文件锁不可用".to_string())?;
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     write_env_var(
         &root.join(".env"),
         "CHECKIN_NO_DISCOVERY",
@@ -273,16 +374,31 @@ fn run_script_stream(
     args: Vec<String>,
     env: Option<std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
+    let engine = bundled_engine_root(&app);
     let slot = state.0.clone();
 
-    let mut cmd = Command::new(npm_bin());
-    cmd.current_dir(&root);
-    apply_node_path(&mut cmd);
-    cmd.arg("run");
-    cmd.arg(&script_name);
+    // 内置引擎：直接跑 Resources 里的 node + 打包脚本；开发模式回退到仓库 + npm
+    let mut cmd = if let Some(engine) = &engine {
+        let node = engine.join(if cfg!(windows) { "node.exe" } else { "node" });
+        let file = script_file(&script_name).ok_or_else(|| format!("未知脚本: {}", script_name))?;
+        let mut c = Command::new(node);
+        c.current_dir(&root);
+        // gh CLI 等外部命令需要 homebrew 路径（launchd 继承的 PATH 很短）
+        apply_node_path(&mut c);
+        c.arg(engine.join("engine").join(file));
+        c
+    } else {
+        let mut c = Command::new(npm_bin());
+        c.current_dir(&root);
+        apply_node_path(&mut c);
+        c.arg("run").arg(&script_name);
+        c
+    };
     if !args.is_empty() {
-        cmd.arg("--");
+        if engine.is_none() {
+            cmd.arg("--");
+        }
         for arg in &args {
             cmd.arg(arg);
         }
@@ -314,7 +430,7 @@ fn run_script_stream(
         (stdout, stderr)
     };
 
-    let _ = app.emit("console-log", format!("[START] Executing npm run {}...", script_name));
+    let _ = app.emit("console-log", format!("[START] Executing {}...", script_name));
 
     thread::spawn(move || {
         let app_out = app.clone();
@@ -442,8 +558,9 @@ fn open_external(target: String) -> Result<(), String> {
 
 #[tauri::command]
 fn set_env_variable(app: AppHandle, key: String, value: String) -> Result<(), String> {
+
     let _guard = ENV_LOCK.lock().map_err(|_| "环境变量文件锁不可用".to_string())?;
-    let root = find_project_root(&app)?;
+    let root = work_dir(&app)?;
     write_env_var(&root.join(".env"), &key, value.trim())
 }
 
@@ -644,6 +761,7 @@ pub fn run() {
             save_config,
             get_last_run,
             get_run_history,
+            get_runtime_info,
             get_env_status,
             get_privacy_mode,
             set_privacy_mode,

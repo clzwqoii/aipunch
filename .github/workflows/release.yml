@@ -124,6 +124,10 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: 打包内置引擎（Node + 签到脚本）
+        if: github.event_name == 'push' || inputs.publish || (github.event_name == 'workflow_dispatch' && !inputs.publish)
+        run: npm run build:engine
+
       - name: 构建并打包发布 Tauri 应用
         if: github.event_name == 'push' || inputs.publish
         # 代码签名/公证需要 Apple 证书，仓库暂无相应 secrets：

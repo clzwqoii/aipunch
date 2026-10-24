@@ -115,6 +115,8 @@ export const translations = {
     privacyItemTitle: "禁止本地凭证扫描 (CHECKIN_NO_DISCOVERY)",
     privacyItemDesc: "开启后，完全禁止桌面壳探测本机其他桌面应用的登录文件，仅依赖显式配置的环境变量。",
     rootTitle: "执行引擎目录",
+    rootDataTitle: "数据目录",
+    rootDataDesc: "内置引擎已随安装包提供；此处保存凭证（.env）、config.json 与运行记录。",
     rootDesc: "签到由该目录下的 Node 脚本执行，需包含 config.json 与 package.json。安装包只含界面，不含执行引擎。",
     rootSave: "保存并重载",
 
@@ -250,6 +252,8 @@ export const translations = {
     privacyItemTitle: "Disable Credential Discovery (CHECKIN_NO_DISCOVERY)",
     privacyItemDesc: "When enabled, disables local disk discovery of desktop client session files, strictly relying on environment variables.",
     rootTitle: "Engine directory",
+    rootDataTitle: "Data directory",
+    rootDataDesc: "The engine ships with the app; credentials (.env), config.json and run history live here.",
     rootDesc: "Check-ins run via the Node scripts in this directory (must contain config.json and package.json). The app bundle only ships the UI, not the engine.",
     rootSave: "Save & Reload",
 

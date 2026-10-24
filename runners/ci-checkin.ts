@@ -8,6 +8,7 @@ import type { ResultFile } from '../core/result.ts';
 // 避免本地/CI 共用单次轮换票互踢。依赖 gh CLI 已登录（gh auth login）。
 // 用法：npm run ci-checkin [-- --provider trae] [-- --account main]
 const WORKFLOW = 'checkin.yml';
+let currentRepo = '';
 const POLL_MS = 3000;
 const FIND_TIMEOUT_MS = 90_000;
 const RUN_TIMEOUT_MS = 20 * 60_000;
@@ -36,8 +37,22 @@ export interface GhInfo {
   repo: string;
 }
 
+// 仓库来自 config.json（内置引擎模式下 cwd 不是 git 仓库，gh 无法自行推断）
+export function configRepo(cwd: string = process.cwd()): string {
+  if (process.env.CHECKIN_REPO) return process.env.CHECKIN_REPO;
+  try {
+    const cfg = JSON.parse(readFileSync(join(cwd, 'config.json'), 'utf8')) as { repo?: unknown };
+    return typeof cfg.repo === 'string' ? cfg.repo : '';
+  } catch {
+    return '';
+  }
+}
+
 // 预检：没装 gh / 没登录 / 当前目录不是仓库，都给出可执行的下一步
-export async function checkGh(run: (args: string[]) => Promise<string>): Promise<GhInfo> {
+export async function checkGh(run: (args: string[]) => Promise<string>, repo: string): Promise<GhInfo> {
+  if (!repo) {
+    throw new Error('缺少仓库信息：config.json 需包含 "repo": "owner/name"（或设置 CHECKIN_REPO）');
+  }
   let version: string;
   try {
     version = (await run(['--version'])).split('\n')[0].trim();
@@ -57,15 +72,15 @@ export async function checkGh(run: (args: string[]) => Promise<string>): Promise
     throw new Error(`gh 未登录或校验失败（${reason}）：运行 gh auth login 后重试`);
   }
   try {
-    const repo = JSON.parse(await run(['repo', 'view', '--json', 'nameWithOwner'])) as { nameWithOwner: string };
-    return { version, repo: repo.nameWithOwner };
+    const info = JSON.parse(await run(['repo', 'view', repo, '--json', 'nameWithOwner'])) as { nameWithOwner: string };
+    return { version, repo: info.nameWithOwner };
   } catch {
-    throw new Error('当前项目不是 GitHub 仓库或 gh 账号无权限：检查 git remote 指向，并用该账号 gh auth login');
+    throw new Error(`仓库 ${repo} 不可访问或 gh 账号无权限：运行 gh auth login 并确认账号有该仓库权限`);
   }
 }
 
-export function dispatchArgs(args: CiArgs): string[] {
-  const out = ['workflow', 'run', WORKFLOW];
+export function dispatchArgs(args: CiArgs, repo: string): string[] {
+  const out = ['workflow', 'run', WORKFLOW, '--repo', repo];
   if (args.provider) out.push('-f', `provider=${args.provider}`);
   if (args.account) out.push('-f', `account=${args.account}`);
   return out;
@@ -121,6 +136,8 @@ async function findRun(sinceMs: number): Promise<RunSummary> {
     const raw = await gh([
       'run',
       'list',
+      '--repo',
+      currentRepo,
       '--workflow',
       WORKFLOW,
       '--limit',
@@ -143,6 +160,8 @@ async function waitForRun(run: RunSummary): Promise<RunSummary> {
       'run',
       'view',
       String(run.databaseId),
+      '--repo',
+      currentRepo,
       '--json',
       'status,conclusion,url,jobs',
     ]);
@@ -165,17 +184,19 @@ async function waitForRun(run: RunSummary): Promise<RunSummary> {
 
 async function main(): Promise<void> {
   const args = parseCiArgs(process.argv.slice(2));
-  const info = await checkGh(gh);
+  const repo = configRepo();
+  currentRepo = repo;
+  const info = await checkGh(gh, repo);
   if (args.check) {
     console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录`);
     return;
   }
   const since = Date.now() - 60_000; // 容忍时钟偏差
-  await gh(dispatchArgs(args));
+  await gh(dispatchArgs(args, repo));
   const run = await findRun(since);
   console.log(`[CI] 已触发运行：${run.url ?? run.databaseId}`);
   const finished = await waitForRun(run);
-  const logs = filterResultLogs(await gh(['run', 'view', String(run.databaseId), '--log']));
+  const logs = filterResultLogs(await gh(['run', 'view', String(run.databaseId), '--repo', currentRepo, '--log']));
   for (const line of logs) console.log(line);
   await saveLastRun(run.databaseId, run.url);
   console.log(`[CI] 运行结束：${finished.conclusion ?? 'unknown'} ${finished.url ?? ''}`.trim());
@@ -186,7 +207,7 @@ async function main(): Promise<void> {
 async function saveLastRun(runId: number, runUrl: string | undefined): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'aipunch-result-'));
   try {
-    await gh(['run', 'download', String(runId), '-n', 'checkin-result', '-D', dir]);
+    await gh(['run', 'download', String(runId), '--repo', currentRepo, '-n', 'checkin-result', '-D', dir]);
     const data = JSON.parse(readFileSync(join(dir, 'checkin-result.json'), 'utf8')) as ResultFile;
     const entry = { ...data, runUrl };
     writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify(entry, null, 1));
@@ -204,7 +225,7 @@ async function saveLastRun(runId: number, runUrl: string | undefined): Promise<v
 }
 
 // 仅直接执行时运行；被测试 import 时不能触发真实 CI
-if (process.argv[1]?.endsWith('ci-checkin.ts')) {
+if (/ci-checkin\.(ts|mjs)$/.test(process.argv[1] ?? '')) {
   main().catch((err: unknown) => {
     console.error(`[CI] ${(err as Error).message}`);
     process.exitCode = 1;
