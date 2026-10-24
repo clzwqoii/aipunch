@@ -275,7 +275,8 @@ async function main(): Promise<void> {
         `sha=${file.sha}`,
       ]);
     } catch (err) {
-      const hint = /workflow|422|403/i.test((err as Error).message)
+      // GitHub 对权限不足的写操作常伪装 404（避免泄漏资源存在性），同样指向 workflow scope 缺失
+      const hint = /workflow|422|403|404/i.test((err as Error).message)
         ? '；修改 workflow 文件需要 gh 登录带 workflow 权限：gh auth refresh -s workflow 后重试'
         : '';
       throw new Error(`设置定时失败：${(err as Error).message}${hint}`);
