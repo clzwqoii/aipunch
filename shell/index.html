@@ -471,7 +471,13 @@
         </div>
         <div class="modal-body">
           <p class="text-muted" data-i18n="cfDeploySub">粘贴 Cloudflare 凭证即可代部署（KV + 脚本 + Secrets + 定时），无需安装 wrangler</p>
-          <p class="config-status" id="cf-deploy-result" hidden></p>
+          <div class="cf-result hidden" id="cf-deploy-result">
+            <span class="cf-result-icon" id="cf-deploy-result-icon"></span>
+            <div>
+              <p class="cf-result-title" id="cf-deploy-result-title"></p>
+              <p class="cf-result-desc" id="cf-deploy-result-desc"></p>
+            </div>
+          </div>
           <div class="cf-deploy-form">
             <label for="cf-token-input"><span data-i18n="cfTokenLabel">API Token</span>
               <input id="cf-token-input" type="password" placeholder="Workers Scripts:Edit + Workers KV Storage:Edit 权限" />

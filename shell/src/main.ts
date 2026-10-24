@@ -367,8 +367,18 @@ function handleNetLine(line: string): void {
   }
 }
 
-function appendTerminalLog(line: string) {
+// 最近一条 CF 错误行：部署失败时在弹框横幅里给出具体原因（而不是只让用户翻终端）
+let lastCfError = "";
+
+function handleNetAndCfLines(line: string): void {
   handleNetLine(line);
+  if (line.startsWith("[CF] ") && /失败|错误/.test(line)) {
+    lastCfError = line.replace(/^\[CF\] /, "").slice(0, 300);
+  }
+}
+
+function appendTerminalLog(line: string) {
+  handleNetAndCfLines(line);
   const term = document.getElementById("terminal-output");
   if (!term) return;
 
@@ -942,8 +952,25 @@ function setupCloudControls(): void {
 
   // Cloudflare 部署弹框：粘贴 Token/Account → cf-deploy 代部署（定时沿用定时行的小时/时区）
   const cfModal = document.getElementById("cf-deploy-modal");
+  // 部署结果横幅（进行中/成功/失败/缺项警告四态）
+  const showCfResult = (state: "running" | "ok" | "fail" | "warn", desc?: string): void => {
+    const box = document.getElementById("cf-deploy-result");
+    const icon = document.getElementById("cf-deploy-result-icon");
+    const title = document.getElementById("cf-deploy-result-title");
+    const descEl = document.getElementById("cf-deploy-result-desc");
+    if (!box || !icon || !title || !descEl) return;
+    box.className = `cf-result ${state}`;
+    const key =
+      state === "running" ? "cfResultRunningTitle" : state === "ok" ? "cfResultOkTitle" : state === "fail" ? "cfResultFailTitle" : "cfResultMissing";
+    icon.textContent = state === "ok" ? "✓" : state === "fail" ? "✕" : state === "warn" ? "⚠" : "⟳";
+    title.textContent = state === "warn" ? t("cfResultMissing") : t(key);
+    descEl.textContent = desc ?? (state === "running" ? t("cfResultRunningDesc") : state === "ok" ? t("cfResultOkDesc") : t("cfResultFailDesc"));
+    descEl.hidden = !descEl.textContent;
+  };
   document.getElementById("cf-deploy-open")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    lastCfError = "";
+    document.getElementById("cf-deploy-result")?.classList.add("hidden");
     cfModal?.classList.remove("hidden");
   });
   document.getElementById("btn-cf-deploy-close")?.addEventListener("click", () => cfModal?.classList.add("hidden"));
@@ -955,40 +982,33 @@ function setupCloudControls(): void {
   // 部署按钮生命周期：部署中禁用并保持弹框 → 按退出码给结果；成功才关闭并刷新卡片状态，失败留在弹框内修正重试
   document.getElementById("btn-cf-deploy-run")?.addEventListener("click", async () => {
     const runBtn = document.getElementById("btn-cf-deploy-run") as HTMLButtonElement | null;
-    const resultEl = document.getElementById("cf-deploy-result");
     const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();
     const account = (document.getElementById("cf-account-input") as HTMLInputElement | null)?.value.trim();
     const hour = (document.getElementById("schedule-hour") as HTMLSelectElement | null)?.value;
     const tz = (document.getElementById("schedule-tz") as HTMLSelectElement | null)?.value;
     if (!token || !account || !hour || !tz) {
-      resultEl?.classList.remove("hidden", "config-ok", "config-fail");
-      resultEl?.classList.add("config-warn");
-      resultEl!.hidden = false;
-      if (resultEl) resultEl.textContent = "⚠ 请完整填写 API Token 与 Account ID";
+      showCfResult("warn");
       return;
     }
+    lastCfError = "";
     if (runBtn) {
       runBtn.disabled = true;
       runBtn.textContent = t("cfDeployRunning");
     }
-    if (resultEl) {
-      resultEl.hidden = false;
-      resultEl.className = "config-status";
-      resultEl.textContent = t("cfDeployRunning");
-    }
+    showCfResult("running");
     const code = await startRunner("cf-deploy", ["--token", token, "--account", account, "--hour", hour, "--tz", tz]);
     if (runBtn) {
       runBtn.disabled = false;
       runBtn.textContent = t("cfDeployBtn");
     }
-    if (resultEl) {
-      resultEl.className = `config-status ${code === 0 ? "config-ok" : "config-fail"}`;
-      resultEl.textContent = code === 0 ? t("cfDeployOk") : t("cfDeployFail");
-    }
     if (code === 0) {
+      showCfResult("ok");
       // 部署成功：.env 已写入 CF_*，重查环境键让 CF 卡点亮「已部署」
       await loadConfigAndState();
-      setTimeout(() => cfModal?.classList.add("hidden"), 1500);
+      setTimeout(() => cfModal?.classList.add("hidden"), 2000);
+    } else {
+      // 失败横幅带具体错误行（cf-deploy 的 [CF] …失败 输出），比「见终端」可操作
+      showCfResult("fail", lastCfError || undefined);
     }
   });
 

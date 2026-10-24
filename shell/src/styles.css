@@ -1443,7 +1443,10 @@ input:checked + .slider:before {
 .modal-card {
   width: 500px;
   max-height: 85vh;
-  overflow-y: auto;
+  /* 头部（关闭按钮）与底部（操作按钮）固定，只滚中间内容 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -1486,6 +1489,10 @@ input:checked + .slider:before {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* 长内容只滚这里，header/footer 不动 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .auth-modal-modes {
@@ -1558,6 +1565,7 @@ input:checked + .slider:before {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex: none;
 }
 
 .btn-secondary {
@@ -1692,6 +1700,59 @@ input:checked + .slider:before {
   display: grid;
   gap: 10px;
   margin-top: 10px;
+}
+
+/* 部署结果横幅：进行中 / 成功 / 失败 三态（半透明底，深浅主题通用） */
+.cf-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.cf-result .cf-result-icon {
+  flex: none;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.cf-result .cf-result-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.cf-result .cf-result-desc {
+  margin: 2px 0 0;
+  color: inherit;
+  opacity: 0.85;
+  word-break: break-all;
+}
+
+.cf-result.running {
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.cf-result.ok {
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.38);
+  color: #16a34a;
+}
+
+.cf-result.fail {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.38);
+  color: #f87171;
+}
+
+.cf-result.warn {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  color: #f59e0b;
 }
 
 .cf-deploy-form label {
