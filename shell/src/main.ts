@@ -917,8 +917,8 @@ function setupCloudControls(): void {
     void runCiSync(false);
   });
 
-  // 定时窗口：小时 00-23 + 时区下拉，保存写 repo 变量（ci-checkin --set-schedule），
-  // workflow 每小时校验匹配才执行；localStorage 只记忆 UI 选择，事实源是 repo 变量（「检查配置」可读回）
+  // 定时窗口：小时 00-23 + 时区下拉，保存后 ci-checkin --set-schedule 自动把仓库 workflow 的
+  // cron 改成对应 UTC 整点（每天只真跑一次）；localStorage 只记忆 UI 选择，事实源是 cron
   const hourSelect = document.getElementById("schedule-hour") as HTMLSelectElement | null;
   const tzSelect = document.getElementById("schedule-tz") as HTMLSelectElement | null;
   if (hourSelect && !hourSelect.options.length) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkGh, configRepo, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun, scheduleFromVars, scheduleVarArgs, workflowStateFromView, workflowToggleArgs } from './ci-checkin.ts';
+import { checkGh, configRepo, cronHourFor, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun, replaceCronLine, scheduleFromCron, workflowStateFromView, workflowToggleArgs } from './ci-checkin.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,22 +26,27 @@ test('parseCiArgs 解析 --set-schedule：小时归一为两位，时区可缺�
   assert.throws(() => parseCiArgs(['--set-schedule']), /缺少/);
 });
 
-test('scheduleVarArgs 生成 gh variable set 命令（小时+时区两条）', () => {
-  assert.deepEqual(scheduleVarArgs('09', 'Asia/Tokyo'), [
-    ['variable', 'set', 'AIPUNCH_CHECKIN_HOUR', '--body', '09'],
-    ['variable', 'set', 'AIPUNCH_CHECKIN_TZ', '--body', 'Asia/Tokyo'],
-  ]);
+test('cronHourFor 按时区与季节（DST）换算当地整点到 UTC cron 小时', () => {
+  const winter = new Date('2026-01-15T12:00:00Z');
+  const summer = new Date('2026-07-15T12:00:00Z');
+  assert.equal(cronHourFor('11', 'Asia/Shanghai', winter), '03');
+  assert.equal(cronHourFor('09', 'Asia/Tokyo', winter), '00');
+  assert.equal(cronHourFor('00', 'Asia/Shanghai', winter), '16'); // 跨日
+  assert.equal(cronHourFor('09', 'America/New_York', winter), '14'); // EST UTC-5
+  assert.equal(cronHourFor('09', 'America/New_York', summer), '13'); // EDT UTC-4
 });
 
-test('scheduleFromVars 从 variable list 读回定时，缺省回 11:00 Asia/Shanghai', () => {
-  assert.deepEqual(
-    scheduleFromVars([
-      { name: 'AIPUNCH_CHECKIN_HOUR', value: '09' },
-      { name: 'AIPUNCH_CHECKIN_TZ', value: 'Asia/Tokyo' },
-    ]),
-    { hour: '09', tz: 'Asia/Tokyo' },
-  );
-  assert.deepEqual(scheduleFromVars([{ name: 'OTHER', value: 'x' }]), { hour: '11', tz: 'Asia/Shanghai' });
+test('replaceCronLine 只替换 schedule 的 cron 行，其余内容不动', () => {
+  const yaml = "on:\n  schedule:\n    - cron: '0 3 * * *'\n  workflow_dispatch:\n";
+  assert.equal(replaceCronLine(yaml, '07'), "on:\n  schedule:\n    - cron: '0 07 * * *'\n  workflow_dispatch:\n");
+  const noCron = 'on:\n  workflow_dispatch:\n';
+  assert.equal(replaceCronLine(noCron, '07'), noCron); // 无 cron 行时原样返回，由调用方兜底
+});
+
+test('scheduleFromCron 从 workflow 文件读回当地定时（cron + 时区反算）', () => {
+  const winter = new Date('2026-01-15T12:00:00Z');
+  assert.deepEqual(scheduleFromCron("- cron: '0 3 * * *'", 'Asia/Shanghai', winter), { hour: '11', tz: 'Asia/Shanghai' });
+  assert.deepEqual(scheduleFromCron("- cron: '0 14 * * *'", 'America/New_York', winter), { hour: '09', tz: 'America/New_York' });
 });
 
 test('workflowToggleArgs 生成 gh workflow enable/disable 命令', () => {

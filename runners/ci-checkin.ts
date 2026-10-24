@@ -8,6 +8,7 @@ import type { ResultFile } from '../core/result.ts';
 // 避免本地/CI 共用单次轮换票互踢。依赖 gh CLI 已登录（gh auth login）。
 // 用法：npm run ci-checkin [-- --provider trae] [-- --account main]
 const WORKFLOW = 'checkin.yml';
+const WORKFLOW_PATH = '.github/workflows/checkin.yml';
 let currentRepo = '';
 const POLL_MS = 3000;
 const FIND_TIMEOUT_MS = 90_000;
@@ -19,7 +20,7 @@ export interface CiArgs {
   check?: boolean;
   // 平台切换联动（ADR 0004 单执行端）：local 时停掉仓库定时 CI，github-actions 时恢复
   workflowAction?: 'enable' | 'disable';
-  // 定时窗口（workflow 每小时校验 repo 变量后执行）：小时两位 00-23，时区 IANA 名
+  // 定时调度（保存即改 workflow 的 cron 行，每天只真跑一次）：小时两位 00-23，时区 IANA 名
   scheduleHour?: string;
   scheduleTz?: string;
 }
@@ -112,18 +113,37 @@ export function workflowStateFromView(yaml: string): string {
   return /^\s*-?\s*state:\s*(\w+)\s*$/m.exec(yaml)?.[1] ?? 'unknown';
 }
 
-// 定时窗口写 repo 变量：workflow 每小时整点跑，gate 比对变量后才真正执行
-export function scheduleVarArgs(hour: string, tz: string): string[][] {
-  return [
-    ['variable', 'set', 'AIPUNCH_CHECKIN_HOUR', '--body', hour],
-    ['variable', 'set', 'AIPUNCH_CHECKIN_TZ', '--body', tz],
-  ];
+// 时区在指定时刻的 UTC 偏移（小时，东八区=8）：当地时刻 = UTC + offset
+function tzOffsetHours(tz: string, at: Date): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const p = Object.fromEntries(dtf.formatToParts(at).map((x) => [x.type, x.value]));
+  const asUTC = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour) % 24, Number(p.minute), Number(p.second));
+  return (asUTC - at.getTime()) / 3_600_000;
 }
 
-export function scheduleFromVars(vars: Array<{ name: string; value: string }>): { hour: string; tz: string } {
-  const read = (name: string): string | undefined =>
-    vars.find((v) => v.name === name && v.value.trim())?.value.trim();
-  return { hour: read('AIPUNCH_CHECKIN_HOUR') ?? '11', tz: read('AIPUNCH_CHECKIN_TZ') ?? 'Asia/Shanghai' };
+// 当地 HH:00 对应的 UTC cron 小时。cron 固定 UTC，DST 时区随季节漂移 1 小时，换季后重新保存定时即校正
+export function cronHourFor(hour: string, tz: string, at: Date = new Date()): string {
+  return String((Number(hour) - Math.round(tzOffsetHours(tz, at)) + 48) % 24).padStart(2, '0');
+}
+
+// 只替换 schedule 块的 cron 行（UTC 整点，每天一次）；无 cron 行时原样返回
+export function replaceCronLine(yaml: string, utcHour: string): string {
+  return yaml.replace(/- cron: '[^']*'/, `- cron: '0 ${utcHour} * * *'`);
+}
+
+// 从 workflow 文件内容读回定时：cron 的 UTC 小时 + 时区反算当地小时
+export function scheduleFromCron(content: string, tz: string, at: Date = new Date()): { hour: string; tz: string } {
+  const utcHour = Number(/- cron:\s*'0 (\d{2}) \* \* \*'/.exec(content)?.[1] ?? 3);
+  return { hour: String((utcHour + Math.round(tzOffsetHours(tz, at)) + 48) % 24).padStart(2, '0'), tz };
 }
 
 interface RunSummary {
@@ -234,8 +254,35 @@ async function main(): Promise<void> {
     return;
   }
   if (args.scheduleHour !== undefined) {
-    for (const cmd of scheduleVarArgs(args.scheduleHour, args.scheduleTz ?? 'Asia/Shanghai')) await gh(cmd);
-    console.log(`[CI] 定时已设为 ${args.scheduleTz ?? 'Asia/Shanghai'} ${args.scheduleHour}:00（workflow 每小时校验，匹配才执行）`);
+    const tz = args.scheduleTz ?? 'Asia/Shanghai';
+    const utcHour = cronHourFor(args.scheduleHour, tz);
+    const endpoint = `repos/${repo}/contents/${WORKFLOW_PATH}`;
+    // 定时调度源是 workflow 的 cron 行：读文件 → 换 cron → PUT 提交（每天只真跑一次）
+    try {
+      const file = JSON.parse(await gh(['api', endpoint])) as { content: string; sha: string };
+      const content = Buffer.from(file.content, 'base64').toString('utf8');
+      if (!/- cron: '/.test(content)) throw new Error(`${WORKFLOW_PATH} 中未找到 schedule cron 行`);
+      await gh([
+        'api',
+        '-X',
+        'PUT',
+        endpoint,
+        '-f',
+        `message=ci: 定时改为 ${tz} ${args.scheduleHour}:00（UTC ${utcHour}:00）`,
+        '-f',
+        `content=${Buffer.from(replaceCronLine(content, utcHour)).toString('base64')}`,
+        '-f',
+        `sha=${file.sha}`,
+      ]);
+    } catch (err) {
+      const hint = /workflow|422|403/i.test((err as Error).message)
+        ? '；修改 workflow 文件需要 gh 登录带 workflow 权限：gh auth refresh -s workflow 后重试'
+        : '';
+      throw new Error(`设置定时失败：${(err as Error).message}${hint}`);
+    }
+    // 时区变量仅用于「检查配置」读回显示，调度以 cron 为准
+    await gh(['variable', 'set', 'AIPUNCH_CHECKIN_TZ', '--body', tz]);
+    console.log(`[CI] 定时已设为 ${tz} ${args.scheduleHour}:00：workflow cron 改为 UTC ${utcHour}:00（每天只跑一次）`);
     return;
   }
   if (args.check) {
@@ -247,13 +294,16 @@ async function main(): Promise<void> {
     }
     let schedule = '';
     try {
-      const vars = JSON.parse(await gh(['variable', 'list', '--repo', repo, '--json', 'name,value'])) as Array<
-        { name: string; value: string }
-      >;
-      const s = scheduleFromVars(vars);
+      const vars = JSON.parse(await gh(['variable', 'list', '--repo', repo, '--json', 'name,value'])) as Array<{
+        name: string;
+        value: string;
+      }>;
+      const tz = vars.find((v) => v.name === 'AIPUNCH_CHECKIN_TZ' && v.value.trim())?.value.trim() || 'Asia/Shanghai';
+      const file = JSON.parse(await gh(['api', `repos/${repo}/contents/${WORKFLOW_PATH}`])) as { content: string };
+      const s = scheduleFromCron(Buffer.from(file.content, 'base64').toString('utf8'), tz);
       schedule = ` · 定时 ${s.tz} ${s.hour}:00`;
     } catch {
-      /* 变量不可读不阻塞环境检查 */
+      /* 定时读回失败不阻塞环境检查 */
     }
     const stateLabel = state === 'active' ? '定时运行中' : state.startsWith('disabled') ? '已禁用（云端不执行）' : '状态未知';
     console.log(`[CI] 环境正常：${info.version} · ${info.repo} · 已登录 · ${stateLabel}${schedule}`);
