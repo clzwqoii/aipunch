@@ -330,7 +330,10 @@ async function main(): Promise<void> {
   console.log('config.json 加账号：{ "provider": "autoclaw-intl", "name": "main", "refreshTokenEnv": "AUTOCLAW_INTL_REFRESH_TOKEN", "enabled": true }');
 }
 
-main().catch((err: unknown) => {
-  console.error(`获取失败: ${(err as Error).message}`);
-  process.exitCode = 1;
-});
+main()
+  .catch((err: unknown) => {
+    console.error(`获取失败: ${(err as Error).message}`);
+    process.exitCode = 1;
+  })
+  // OAuth 回调 server 句柄会挂住进程（桌面端按钮卡执行中），流程结束显式退出
+  .finally(() => process.exit(process.exitCode ?? 0));

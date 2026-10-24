@@ -358,31 +358,9 @@ function renderInitialTerminalLogs() {
   });
 }
 
-function setupTerminalControls() {
-  const btnClear = document.getElementById("btn-clear-terminal");
-  btnClear?.addEventListener("click", () => {
-    const term = document.getElementById("terminal-output");
-    if (term) term.innerHTML = "";
-  });
-
-  // 常驻脚本（OAuth 等待回调等）可能永不退出，必须能手动终止
-  const btnStop = document.getElementById("btn-stop-script");
-  btnStop?.addEventListener("click", async () => {
-    try {
-      await invoke("stop_script");
-      appendTerminalLog("[STOP] 已请求终止当前任务");
-    } catch (e) {
-      appendTerminalLog(`[ERROR] Failed to stop script: ${e}`);
-    }
-  });
-
-  const btnToggle = document.getElementById("btn-toggle-terminal");
-  const drawer = document.getElementById("terminal-drawer");
-  btnToggle?.addEventListener("click", () => {
-    drawer?.classList.toggle("collapsed");
-    btnToggle.textContent = drawer?.classList.contains("collapsed") ? t("termExpand") : t("termCollapse");
-  });
-}
+// 终端按钮（停止/清屏/收起）已按用户要求移除；runner 卡死时重启应用兜底，
+// login 类 runner 已改为流程结束显式退出，卡死场景大幅减少
+function setupTerminalControls() {}
 
 // [NET] 行（netcheck runner 输出）同步更新云端 CI 页的网络状态 chip：
 // [NET] GitHub: ok 230ms HTTP 200 / [NET] Cloudflare: fail 超时
@@ -830,8 +808,6 @@ async function saveCurrentConfig() {
 
 // 7. 执行签到：所有 runner 共用同一把锁，script-finished 时解锁并回传退出码
 function setRunButton(running: boolean) {
-  const btnStop = document.getElementById("btn-stop-script") as HTMLButtonElement | null;
-  if (btnStop) btnStop.disabled = !running;
   const btnRunAll = document.getElementById("btn-run-all") as HTMLButtonElement | null;
   const btnRunAllText = document.getElementById("btn-run-all-text");
   const spinner = document.getElementById("btn-run-all-spinner");

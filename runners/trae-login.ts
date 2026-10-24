@@ -95,7 +95,10 @@ async function main(): Promise<void> {
   console.log(`已写入 ${envFile}（token 不明文显示）`);
 }
 
-main().catch((err: unknown) => {
-  console.error(`登录失败: ${(err as Error).message}`);
-  process.exitCode = 1;
-});
+main()
+  .catch((err: unknown) => {
+    console.error(`登录失败: ${(err as Error).message}`);
+    process.exitCode = 1;
+  })
+  // OAuth 回调 server 句柄会挂住进程（桌面端按钮卡执行中），流程结束显式退出
+  .finally(() => process.exit(process.exitCode ?? 0));

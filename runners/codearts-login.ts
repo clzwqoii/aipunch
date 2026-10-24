@@ -146,7 +146,10 @@ async function main(): Promise<void> {
   console.log('config.json 加账号：{ "provider": "codearts", "name": "main", "refreshTokenEnv": "CODEARTS_REFRESH_TOKEN", "enabled": true }');
 }
 
-main().catch((err: unknown) => {
-  console.error(`登录失败: ${(err as Error).message}`);
-  process.exitCode = 1;
-});
+main()
+  .catch((err: unknown) => {
+    console.error(`登录失败: ${(err as Error).message}`);
+    process.exitCode = 1;
+  })
+  // OAuth 回调 server 的句柄会挂住进程（script-finished 不来、桌面端按钮卡在执行中），流程结束显式退出
+  .finally(() => process.exit(process.exitCode ?? 0));
