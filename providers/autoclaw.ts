@@ -233,10 +233,9 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
     // 先查任务状态：已完成就不发 claim（避免重复请求与风控噪声）
     const signinStatus = await querySigninStatus(accessToken, baseUrl(), ctx);
     if (signinStatus?.status === 'completed') {
-      const reward = signinStatus.reward > 0 ? `（+${signinStatus.reward} 积分）` : '';
       return {
         ok: true,
-        message: `今日已签到（状态确认）${reward}${balanceSuffix}`,
+        message: `今日已签到（状态确认）${balanceSuffix}`,
         detail: { status: 'completed', signinStatus, balance, balanceError: balanceResult.error, rotatedRefreshToken },
         rotatedRefreshToken,
       };

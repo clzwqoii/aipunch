@@ -473,6 +473,14 @@ function applyDoneState(): void {
       play.title = isDone ? t("cardDone") : t("cardRunSingle");
     }
   });
+
+  const allDone = allDoneToday();
+  const btnRunAll = document.getElementById("btn-run-all") as HTMLButtonElement | null;
+  const btnRunAllText = document.getElementById("btn-run-all-text");
+  if (btnRunAll && !isRunning) {
+    btnRunAll.disabled = allDone;
+    if (btnRunAllText) btnRunAllText.textContent = allDone ? t("heroAllDone") : t("heroRunAll");
+  }
 }
 
 function renderTotalBalance(): void {
@@ -663,8 +671,22 @@ async function startRunner(
 }
 
 function runCheckinAll() {
+  // 今日已全部签到：不再触发 CI，避免无意义的请求与风控
+  if (allDoneToday()) {
+    appendTerminalLog("[跳过] 今日已全部签到，无需重复执行");
+    return;
+  }
   // 签到统一在 CI 执行（单执行端，避免本地与 CI 轮换票互踢）
   void startRunner("ci-checkin", []);
+}
+
+function allDoneToday(): boolean {
+  if (!isTodayRun()) return false;
+  const enabled = currentConfig.accounts.filter((a) => a.enabled !== false);
+  if (enabled.length === 0) return false;
+  return enabled.every((a) =>
+    lastRunEntries.some((r) => r.provider === a.provider && r.account === a.name && r.ok),
+  );
 }
 
 // 8. 隐私开关
