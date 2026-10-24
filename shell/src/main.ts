@@ -911,6 +911,10 @@ function setupCloudControls(): void {
     cfModal?.classList.remove("hidden");
   });
   document.getElementById("btn-cf-deploy-close")?.addEventListener("click", () => cfModal?.classList.add("hidden"));
+  // 直达 Cloudflare 令牌创建页（模板列表里的「Edit Cloudflare Workers」即所需权限集）
+  document.getElementById("btn-cf-open-token-page")?.addEventListener("click", () => {
+    void invoke("open_external", { target: "https://dash.cloudflare.com/profile/api-tokens" });
+  });
   document.getElementById("btn-cf-deploy-run")?.addEventListener("click", () => {
     const token = (document.getElementById("cf-token-input") as HTMLInputElement | null)?.value.trim();
     const account = (document.getElementById("cf-account-input") as HTMLInputElement | null)?.value.trim();
