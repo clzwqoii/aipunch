@@ -1243,8 +1243,8 @@ function openAuthModal(provider: string) {
         </div>
       </div>
 
-      <!-- 途径 2：调起本地客户端 / 本地提取 -->
-      <div class="auth-option-card">
+      <!-- 途径 2：调起本地客户端 / 本地提取（无 localApp 的 provider 渲染后移除） -->
+      <div class="auth-option-card" data-auth-app-card>
         <div class="auth-option-header">
           <span>${t("tabLocalApp")}</span>
           <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">App</span>
