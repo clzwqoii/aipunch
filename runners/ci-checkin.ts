@@ -198,20 +198,45 @@ async function main(): Promise<void> {
   const finished = await waitForRun(run);
   const logs = filterResultLogs(await gh(['run', 'view', String(run.databaseId), '--repo', currentRepo, '--log']));
   for (const line of logs) console.log(line);
-  await saveLastRun(run.databaseId, run.url);
+  await saveLastRun(run.databaseId, run.url, Boolean(args.provider || args.account));
   console.log(`[CI] 运行结束：${finished.conclusion ?? 'unknown'} ${finished.url ?? ''}`.trim());
   process.exitCode = exitCodeFor(finished.conclusion);
 }
 
+// 过滤运行只覆盖对应账号，其余账号沿用上次结果；完整运行则整体替换
+export function mergeRunResults(prev: ResultFile | null, entry: ResultFile, filtered: boolean): ResultFile {
+  if (!filtered || !prev) return entry;
+  const map = new Map((prev.results ?? []).map((r) => [`${r.provider}/${r.account}`, r]));
+  for (const r of entry.results ?? []) map.set(`${r.provider}/${r.account}`, r);
+  const results = [...map.values()];
+  return {
+    finishedAt: entry.finishedAt,
+    runUrl: entry.runUrl,
+    total: results.length,
+    succeeded: results.filter((r) => r.ok).length,
+    results,
+  };
+}
+
 // 下载 CI 产物并写入本地结构化结果，桌面端据此在卡片展示余额；失败不影响退出码
-async function saveLastRun(runId: number, runUrl: string | undefined): Promise<void> {
+async function saveLastRun(runId: number, runUrl: string | undefined, filtered: boolean): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'aipunch-result-'));
   try {
     await gh(['run', 'download', String(runId), '--repo', currentRepo, '-n', 'checkin-result', '-D', dir]);
     const data = JSON.parse(readFileSync(join(dir, 'checkin-result.json'), 'utf8')) as ResultFile;
     const entry = { ...data, runUrl };
-    writeFileSync(join(process.cwd(), '.aipunch-last-run.json'), JSON.stringify(entry, null, 1));
-    // 历史记录：保留最近 50 次，供桌面端「执行记录」页面展示
+    // 单账号/单平台运行只覆盖对应账号，其余账号保留上一次结果（卡片与「今日签到」总数不丢）
+    const lastPath = join(process.cwd(), '.aipunch-last-run.json');
+    let prev: ResultFile | null = null;
+    if (filtered && existsSync(lastPath)) {
+      try {
+        prev = JSON.parse(readFileSync(lastPath, 'utf8')) as ResultFile;
+      } catch {
+        prev = null; // 旧文件损坏时直接用本次结果
+      }
+    }
+    writeFileSync(lastPath, JSON.stringify(mergeRunResults(prev, entry, filtered), null, 1));
+    // 历史记录：保留最近 50 次原始运行，供桌面端「执行记录」页面展示
     const historyPath = join(process.cwd(), '.aipunch-runs.json');
     const history = existsSync(historyPath)
       ? (JSON.parse(readFileSync(historyPath, 'utf8')) as unknown[])

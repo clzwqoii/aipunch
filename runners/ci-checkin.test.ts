@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkGh, configRepo, dispatchArgs, exitCodeFor, filterResultLogs, parseCiArgs, pickRun } from './ci-checkin.ts';
+import { checkGh, configRepo, dispatchArgs, exitCodeFor, filterResultLogs, mergeRunResults, parseCiArgs, pickRun } from './ci-checkin.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -98,4 +98,22 @@ test('configRepo 从 config.json 读取 repo', () => {
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ repo: 'o/r', accounts: [] }));
   assert.equal(configRepo(dir), 'o/r');
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('mergeRunResults 过滤运行保留其余账号，完整运行整体替换', () => {
+  const entry = (provider: string, ok: boolean) => ({ provider, account: 'main', ok, message: '', balance: null });
+  const prev = {
+    finishedAt: '2026-10-24T03:00:00Z',
+    total: 2,
+    succeeded: 2,
+    results: [entry('a', true), entry('b', true)],
+  };
+  const next = { finishedAt: '2026-10-24T04:00:00Z', total: 1, succeeded: 1, results: [entry('a', true)] };
+  const merged = mergeRunResults(prev, next, true);
+  assert.equal(merged.total, 2);
+  assert.equal(merged.results.length, 2);
+  assert.equal(merged.runUrl, undefined);
+  const replaced = mergeRunResults(prev, next, false);
+  assert.equal(replaced.total, 1);
+  assert.equal(replaced.results.length, 1);
 });
