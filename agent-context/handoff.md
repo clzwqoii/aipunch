@@ -17,7 +17,8 @@
   - `runners/cf-deploy.ts`：--token/--account（env 兜底）代部署全流程（KV→config→worker→Secrets→.env 回写 CF_ACCOUNT_ID/API_TOKEN/KV_NAMESPACE）；`--trigger-now`=临时 cron 下一分钟→轮询 KV result→恢复；`--cron-only`=只改定时
   - 桌面端：CF 卡解禁+⚙ 部署弹框（token/account 表单，定时沿用定时行值）；activePlatform 三态；一键签到 CF 分流 --trigger-now；切 CF 时 GitHub workflow 自动 disable；「保存定时」CF 分流 --cron-only
 - 实测进度（2026-10-24 深夜全链路）：**部署一键幂等已真实验证**——worker 上传成功、二跑按指纹跳过上传、cron 5 字段通过、Secrets/KV/凭证写回全通，数据目录 ci-sync 输出「KV 暂无结果」（待首跑）。实测暴露并修复四个 CF API 兼容点：multipart 不声明 secret_text、module MIME 需 application/javascript+module、cron 为 5 字段、脚本须先于 Secrets/Schedules 上传（7250940）
-- 待最后验证：「一键签到」（trigger-now 首轮）→ 五账号结果（CodeArts 10ms CPU）→ KV 同步回卡片
+- **CF 全链路实测收官（2026-10-24 深夜，30a2d88）**：worker 真实执行 3/5（workbuddy/qoder/autoclaw-intl 成功）→ KV result 经 ci-sync 同步回桌面数据验证通过；**CodeArts DPoP 在免费版 10ms CPU 限制内可完成**（ADR 0004 最大技术疑虑解除）；trae/codearts 失败均为切换执行端前的旧票（401/400，非代码问题）。实测固化：trigger-now 每分钟 cron（CF 调度分钟级延迟，单分钟窗口常错过）+ result/error 双终态 + 8 分钟窗口；worker 失败写 KV error（tail 不支持 Token）；buildDeployPlan 收集 14 个辅助凭证键（DPOP_KEY 等经 nodejs_compat 进 process.env）
+- 剩余动作（用户）：重新导入 Trae 与 CodeArts 凭证（票被 GitHub 侧轮换过）→ 点部署（更新 Secrets）→ 一键签到 → 预期 5/5；之后 CF 平台作为主执行端日常运行
 - UX 反馈修复（部署状态反馈）：部署弹框点「部署」后按钮禁用变「部署中…」、弹框保持，退出码成功才显示「✓ 部署成功」并 1.5s 后关闭、失败留在弹框内可重试；平台卡新增配置状态行（CF=.env CF_KV_NAMESPACE 判定「● 已部署」绿；GitHub=config.repo 判定「● 已配置仓库」）
 - 关联（2533c84）：云端 CI 页新增网络状态行（GitHub/Cloudflare API 域可达性 chip，启动 5s 自查 + 手动「网络检查」，netcheck runner 输出 [NET] 行单点解析）——国内可达性是平台选型依据（ADR 0003）；两平台弹框均含一键打开 Fork/令牌创建页
 - 修订：
