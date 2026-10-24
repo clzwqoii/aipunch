@@ -202,6 +202,8 @@ fn script_file(script: &str) -> Option<&'static str> {
         "ci-sync" => "ci-sync.mjs",
         // Cloudflare Workers 代部署与立即执行（ADR 0004 P2）
         "cf-deploy" => "cf-deploy.mjs",
+        // 云端平台可达性检查（GitHub / Cloudflare API 域）
+        "netcheck" => "netcheck.mjs",
         "trae-extract" => "trae-extract.mjs",
         "trae-login" => "trae-login.mjs",
         "qoder-login" => "qoder-login.mjs",

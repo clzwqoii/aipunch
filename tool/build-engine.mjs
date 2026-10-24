@@ -24,6 +24,7 @@ const ENTRIES = {
   'autoclaw-login': 'runners/autoclaw-login.ts',
   'autoclaw-intl-login': 'runners/autoclaw-intl-login.ts',
   'cf-deploy': 'runners/cf-deploy.ts',
+  netcheck: 'runners/netcheck.ts',
   login: 'runners/login.ts',
 };
 

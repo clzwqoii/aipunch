@@ -17,6 +17,7 @@
     "ci-checkin": "tsx runners/ci-checkin.ts",
     "ci-sync": "tsx runners/ci-sync.ts",
     "cf-deploy": "tsx runners/cf-deploy.ts",
+    "netcheck": "tsx runners/netcheck.ts",
     "dry-run": "tsx runners/cli.ts --dry-run",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test core/*.test.ts providers/*.test.ts runners/*.test.ts cloudflare/*.test.ts",

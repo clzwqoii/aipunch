@@ -1642,6 +1642,32 @@ input:checked + .slider:before {
   padding: 4px 10px;
 }
 
+/* 网络状态行：平台可达性 chip */
+.net-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.net-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+
+.net-chip.net-ok {
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.4);
+}
+
+.net-chip.net-fail {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
 /* 定时窗口行：label 内联两组下拉（小时 / 时区） */
 .schedule-label {
   display: flex;

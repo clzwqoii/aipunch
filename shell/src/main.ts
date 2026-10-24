@@ -96,6 +96,8 @@ async function init() {
   // 启动静默同步 + 每 30 分钟拉一次云端结果（ADR 0004：定时 cron 的结果桌面端可见）
   setTimeout(() => void runCiSync(true), 3000);
   setInterval(() => void runCiSync(true), 30 * 60 * 1000);
+  // 启动顺带查一次云端平台可达性（国内网络选型参考），结果更新网络状态行
+  setTimeout(() => void startRunner("netcheck", [], undefined, { silent: true }), 5000);
 }
 
 // 0. 窗口控制：双击执行 Cocoa 原生平滑动画铺满/还原，mousedown 启动系统级原生拖拽
@@ -347,7 +349,26 @@ function setupTerminalControls() {
   });
 }
 
+// [NET] 行（netcheck runner 输出）同步更新云端 CI 页的网络状态 chip：
+// [NET] GitHub: ok 230ms HTTP 200 / [NET] Cloudflare: fail 超时
+function handleNetLine(line: string): void {
+  const m = /^\[NET\] (GitHub|Cloudflare): (ok|fail) (.+)$/.exec(line);
+  if (!m) return;
+  const [, name, state, rest] = m;
+  const el = document.getElementById(name === "GitHub" ? "net-github" : "net-cloudflare");
+  if (!el) return;
+  el.classList.remove("net-ok", "net-fail");
+  if (state === "ok") {
+    el.classList.add("net-ok");
+    el.textContent = `${name} ${t("netOk")} ${rest.split(" ")[0]}`;
+  } else {
+    el.classList.add("net-fail");
+    el.textContent = `${name} ${t("netFail")}（${rest}）`;
+  }
+}
+
 function appendTerminalLog(line: string) {
+  handleNetLine(line);
   const term = document.getElementById("terminal-output");
   if (!term) return;
 
@@ -950,6 +971,11 @@ function setupCloudControls(): void {
       return;
     }
     void runCiSync(false);
+  });
+
+  // 云端平台可达性（GitHub / Cloudflare API 域）：结果同时展示在网络状态行与终端
+  document.getElementById("btn-netcheck")?.addEventListener("click", () => {
+    void startRunner("netcheck", []);
   });
 
   // 定时窗口：小时 00-23 + 时区下拉，保存后 ci-checkin --set-schedule 自动把仓库 workflow 的
