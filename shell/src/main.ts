@@ -936,6 +936,13 @@ function setupCloudControls(): void {
     helpModal?.classList.remove("hidden");
   });
   document.getElementById("btn-config-help-close")?.addEventListener("click", () => helpModal?.classList.add("hidden"));
+  // GitHub 教程便利入口：Fork 直达页 + PAT 创建页（预选 repo+workflow，Secret 回写与改定时所需）
+  document.getElementById("btn-cloud-open-fork")?.addEventListener("click", () => {
+    void invoke("open_external", { target: "https://github.com/clzwqoii/aipunch/fork" });
+  });
+  document.getElementById("btn-cloud-open-token")?.addEventListener("click", () => {
+    void invoke("open_external", { target: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=AIPunch" });
+  });
 
   document.getElementById("btn-cloud-refresh")?.addEventListener("click", () => {
     if (activePlatform() === "local") {

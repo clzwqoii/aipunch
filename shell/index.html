@@ -435,14 +435,17 @@
           <p class="text-muted" data-i18n="cloudConfigSub">云端执行端所需，配置一次即可</p>
           <p class="config-status" id="cloud-config-status">—</p>
           <ol class="config-steps">
-            <li data-i18n="cloudConfigStep1">GitHub 上 Fork 或使用本仓库，在 Settings → Secrets and variables → Actions 添加各平台 token 与 GH_PAT（轮换票回写用）</li>
-            <li data-i18n="cloudConfigStep2">启用 Actions：checkin.yml 每日定时自动签到，无需启动本应用，结果由本页「立即刷新」拉取</li>
-            <li data-i18n="cloudConfigStep3">本应用数据目录的 config.json 设置 "repo": "owner/name"（当前生效的执行仓库）</li>
-            <li data-i18n="cloudConfigStep4">本机安装 gh CLI 并运行 gh auth login（手动触发与同步需要；macOS：brew install gh）</li>
-            <li data-i18n="cloudConfigStep5">点击「检查配置」逐项验证（含仓库定时 CI 当前启停状态）</li>
+            <li data-i18n="cloudConfigStep1">Fork 本仓库：github.com/clzwqoii/aipunch → 右上角 Fork（或使用你已有的仓库）</li>
+            <li data-i18n="cloudConfigStep2">创建 PAT（CI 回写轮换票用）：点「打开令牌创建页」（已预选 repo + workflow 权限）→ Generate token → 复制（只显示一次）</li>
+            <li data-i18n="cloudConfigStep3">仓库 Secrets：Fork 的仓库 → Settings → Secrets and variables → Actions → New repository secret，逐个添加各平台凭证（名字与本应用一致，如 TRAE_REFRESH_TOKEN、QODER_REFRESH_TOKEN、WORKBUDDY_REFRESH_TOKEN、CODEARTS_REFRESH_TOKEN、AUTOCLAW_INTL_REFRESH_TOKEN 等）与上一步的 GH_PAT</li>
+            <li data-i18n="cloudConfigStep4">启用 Actions：仓库 Actions 页确认 checkin.yml 已启用（每日定时自动签到，无需启动本应用）</li>
+            <li data-i18n="cloudConfigStep5">本机安装 gh CLI 并运行 gh auth login（手动触发、同步、改定时需要；macOS：brew install gh，Windows：winget install GitHub.cli）</li>
+            <li data-i18n="cloudConfigStep6">本应用数据目录 config.json 设置 "repo": "你的用户名/aipunch"，点「检查配置」逐项验证（含定时 CI 启停与定时时间）</li>
           </ol>
         </div>
         <div class="modal-footer">
+          <button id="btn-cloud-open-fork" class="btn-secondary" data-i18n="cloudOpenForkPage">打开 Fork 页</button>
+          <button id="btn-cloud-open-token" class="btn-secondary" data-i18n="cloudOpenTokenPage">打开令牌创建页</button>
           <button id="btn-cloud-check" class="btn-primary" data-i18n="cloudConfigCheck">检查配置</button>
         </div>
       </div>
