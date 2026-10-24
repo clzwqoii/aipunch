@@ -19,6 +19,7 @@ import type { Account, CheckinResult, Provider, RunContext } from '../core/types
 const EXCHANGE_URL = 'https://api.trae.com.cn/cloudide/api/v3/trae/oauth/ExchangeToken';
 const CLAIM_URL = 'https://api.trae.cn/trae/api/v2/ug/checkin_credits/claim';
 // 账户积分额度（magpie 实测端点）：user_entitlement_pack_list 里 limit 求和、usage 累加
+const STATUS_URL = 'https://api.trae.cn/trae/api/v2/ug/checkin_credits/status';
 const USAGE_URL = 'https://api.trae.cn/trae/api/v2/pay/ide_user_ent_usage';
 const CLIENT_ID = process.env.TRAE_CLIENT_ID ?? 'ono9krqynydwx5';
 const REQ_SOURCE = Number(process.env.TRAE_REQ_SOURCE ?? '2');
@@ -164,6 +165,18 @@ async function queryUsage(jwt: string, deviceId: string, ctx: RunContext): Promi
   }
 }
 
+async function queryStatus(jwt: string, deviceId: string, ctx: RunContext): Promise<{ checkedIn: boolean } | null> {
+  try {
+    const res = await ctx.fetch(STATUS_URL, { headers: claimHeaders(jwt, deviceId) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { code?: number; checked_in?: boolean };
+    if (data.code !== 0) return null;
+    return { checkedIn: data.checked_in === true };
+  } catch {
+    return null;
+  }
+}
+
 function usageText(usage: TraeUsage | null): string {
   if (!usage) return '';
   return usage.unlimited ? '；积分不限' : `；剩余 ${usage.remain}/${usage.limit}`;
@@ -187,6 +200,18 @@ export const trae: Provider = {
     }
     if (!jwt) {
       return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
+    }
+
+    // 先查状态：今日已签就不发 claim（Trae 对重复 claim 会回 9074 噪声）
+    const status = await queryStatus(jwt, deviceId, ctx);
+    if (status?.checkedIn) {
+      const usage = await queryUsage(jwt, deviceId, ctx);
+      return {
+        ok: true,
+        message: `今日已领取（状态确认）${usageText(usage)}`,
+        detail: { status: 'checked_in', usage, rotatedRefreshToken },
+        rotatedRefreshToken,
+      };
     }
 
     const doClaim = (token: string): Promise<Response> =>
@@ -234,10 +259,10 @@ export const trae: Provider = {
       return {
         ok: false,
         message: `触发限流/设备校验（code=${code}）：积分未到账，下轮重试。需带齐 TRAE_DEVICE_ID / TRAE_MACHINE_ID / TRAE_USER_ID`,
-        detail: { status: res.status, body, usage, rotatedRefreshToken },
+        detail: { status: res.status, body, usage, statusInfo: status, rotatedRefreshToken },
         rotatedRefreshToken,
       };
     }
-    return { ok: false, message: `签到失败: code=${code} ${message}`, detail: { status: res.status, body, usage, rotatedRefreshToken }, rotatedRefreshToken };
+    return { ok: false, message: `签到失败: code=${code} ${message}`, detail: { status: res.status, body, usage, statusInfo: status, rotatedRefreshToken }, rotatedRefreshToken };
   },
 };

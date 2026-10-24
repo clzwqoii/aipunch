@@ -12,6 +12,7 @@ function ctxWith(fetchImpl: typeof fetch): RunContext {
 // 按 wallechfox/Trae-Checkin 实测契约路由 mock：ExchangeToken（api.trae.com.cn）与 claim（api.trae.cn）
 function mockTrae(handlers: {
   exchange?: () => Response;
+  status?: () => Response;
   claim?: () => Response;
   usage?: () => Response;
   onCall?: (url: string, init?: RequestInit) => void;
@@ -20,6 +21,7 @@ function mockTrae(handlers: {
     const u = String(url);
     handlers.onCall?.(u, init);
     if (u.includes('/oauth/ExchangeToken')) return handlers.exchange!();
+    if (u.includes('/checkin_credits/status')) return handlers.status?.() ?? new Response('{}', { status: 500 });
     if (u.includes('/checkin_credits/claim')) return handlers.claim!();
     if (u.includes('/pay/ide_user_ent_usage')) return handlers.usage?.() ?? new Response('{}', { status: 500 });
     throw new Error(`unexpected url: ${u}`);
@@ -254,4 +256,38 @@ test('parseTraeUsage 小数用量四舍五入到两位', () => {
     ],
   });
   assert.deepEqual(usage, { limit: 2200, used: 446.98, remain: 1753.02, unlimited: false });
+});
+
+test('状态接口显示今日已签时不发 claim', async () => {
+  await withDeviceEnv(async () => {
+    const calls: string[] = [];
+    const ctx = ctxWith(
+      mockTrae({
+        exchange: EXCHANGE_OK,
+        status: () => new Response(JSON.stringify({ code: 0, checked_in: true }), { status: 200 }),
+        onCall: (url) => calls.push(url),
+      }),
+    );
+    const result = await trae.checkin(account, ctx);
+    assert.equal(result.ok, true);
+    assert.match(result.message, /今日已领取/);
+    assert.ok(!calls.some((u) => u.includes('/claim')), '已签时不应再调 claim');
+  });
+});
+
+test('状态接口显示未签时照常 claim', async () => {
+  await withDeviceEnv(async () => {
+    const calls: string[] = [];
+    const ctx = ctxWith(
+      mockTrae({
+        exchange: EXCHANGE_OK,
+        status: () => new Response(JSON.stringify({ code: 0, checked_in: false }), { status: 200 }),
+        claim: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        onCall: (url) => calls.push(url),
+      }),
+    );
+    const result = await trae.checkin(account, ctx);
+    assert.equal(result.ok, true);
+    assert.ok(calls.some((u) => u.includes('/claim')), '未签时应调 claim');
+  });
 });
