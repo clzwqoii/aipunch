@@ -796,13 +796,13 @@ function renderProviderCards() {
         <div class="provider-brand">
           <div class="provider-icon-badge" style="background: ${escapeHtml(meta.iconBg)}">
             ${escapeHtml(meta.brandChar)}
-            <span class="auth-dot ${statusClass}" title="${statusLabel}"></span>
           </div>
           <div class="brand-text">
             <h4>${safeName}</h4>
             <div class="provider-id">${safeAccount}</div>
           </div>
         </div>
+        <span class="auth-dot ${statusClass}" title="${statusLabel}"></span>
         <label class="switch">
           <input type="checkbox" class="account-toggle" data-index="${idx}" ${isEnabled ? "checked" : ""} />
           <span class="slider round"></span>
