@@ -137,7 +137,7 @@ export const translations = {
     cloudOpenForkPage: "打开 Fork 页",
 
     credTitle: "凭证一键导入向导",
-    credSub: "六大官方授权向导，零手动抓包配置",
+    credSub: "官方授权向导，零手动抓包配置",
     credQoderDesc: "输入开发者个人访问令牌（PAT），一键兑换并自动回写凭证。",
     credQoderBtn: "启动 PAT 兑换向导",
     credTraeDesc: "从本机客户端已登录存储直接解密读取设备号与 Refresh Token。",
@@ -332,7 +332,7 @@ export const translations = {
     cloudOpenForkPage: "Open Fork page",
 
     credTitle: "Credentials Import",
-    credSub: "Six official authentication wizards, zero manual packet inspection",
+    credSub: "Official auth wizards, zero manual packet inspection",
     credQoderDesc: "Enter your Personal Access Token to exchange and save credentials automatically.",
     credQoderBtn: "Start PAT Wizard",
     credTraeDesc: "Decrypt and extract device ID and refresh token from local client storage.",
