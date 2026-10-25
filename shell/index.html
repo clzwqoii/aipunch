@@ -280,7 +280,6 @@
             <div class="wizard-card" data-brand="qoder">
               <div class="wizard-header">
                 <span class="provider-badge badge-qoder">Qoder</span>
-                <h4 data-i18n="credQoderTitle">Qoder PAT 官方兑换</h4>
               </div>
               <p data-i18n="credQoderDesc">输入开发者个人访问令牌（PAT），一键兑换并自动回写凭证。</p>
               <div class="wizard-footer">
@@ -291,7 +290,6 @@
             <div class="wizard-card" data-brand="trae">
               <div class="wizard-header">
                 <span class="provider-badge badge-trae">Trae</span>
-                <h4 data-i18n="credTraeTitle">Trae 本地凭证提取</h4>
               </div>
               <p data-i18n="credTraeDesc">从本机客户端已登录存储直接解密读取设备号与 Refresh Token。</p>
               <div class="wizard-footer">
@@ -302,7 +300,6 @@
             <div class="wizard-card" data-brand="codearts">
               <div class="wizard-header">
                 <span class="provider-badge badge-codearts">CodeArts</span>
-                <h4 data-i18n="credCodeartsTitle">码道 CodeArts 授权</h4>
               </div>
               <p data-i18n="credCodeartsDesc">调起浏览器完成 OAuth PKCE 授权，自动生成与绑定 DPoP 密钥对。</p>
               <div class="wizard-footer">
@@ -313,7 +310,6 @@
             <div class="wizard-card" data-brand="autoclaw">
               <div class="wizard-header">
                 <span class="provider-badge badge-autoclaw">AutoClaw</span>
-                <h4 data-i18n="credAutoclawTitle">AutoClaw 国际版授权</h4>
               </div>
               <p data-i18n="credAutoclawDesc">调起官方安全验证并绑定设备 ID，自动保存刷新令牌。</p>
               <div class="wizard-footer">
@@ -324,7 +320,6 @@
             <div class="wizard-card" data-brand="workbuddy">
               <div class="wizard-header">
                 <span class="provider-badge badge-workbuddy">WorkBuddy</span>
-                <h4 data-i18n="credWorkbuddyTitle">WorkBuddy 短信登录</h4>
               </div>
               <p data-i18n="credWorkbuddyDesc">输入手机号获取短信验证码，一键获取并保存刷新令牌。</p>
               <div class="wizard-footer">
@@ -335,11 +330,19 @@
             <div class="wizard-card" data-brand="autoclaw-cn">
               <div class="wizard-header">
                 <span class="provider-badge badge-autoclaw-cn">AutoClaw CN</span>
-                <h4 data-i18n="credAutoclawCnTitle">AutoClaw 国内版登录</h4>
               </div>
               <p data-i18n="credAutoclawCnDesc">智谱 AutoGLM 国内版短信验证码登录，支持自动回写凭据。</p>
               <div class="wizard-footer">
                 <button class="btn-secondary wizard-action-btn" id="btn-import-autoclaw-cn" data-i18n="credAutoclawCnBtn">启动国内版登录向导</button>
+              </div>
+            </div>
+            <div class="wizard-card" data-brand="raccoon">
+              <div class="wizard-header">
+                <span class="provider-badge badge-raccoon">小浣熊</span>
+              </div>
+              <p data-i18n="credRaccoonDesc">一键提取本机小浣熊客户端登录态（与客户端共享会话，token 直用为主）。</p>
+              <div class="wizard-footer">
+                <button class="btn-secondary wizard-action-btn" id="btn-import-raccoon" data-i18n="credRaccoonBtn">一键提取本地凭证</button>
               </div>
             </div>
           </div>
@@ -366,18 +369,6 @@
                 </label>
               </div>
             </div>
-
-            <div class="wizard-card">
-              <div class="setting-info">
-                <h4 id="root-title" data-i18n="rootTitle">执行引擎目录</h4>
-                <p id="root-desc" data-i18n="rootDesc">签到由该目录下的 Node 脚本执行，需包含 config.json 与 package.json。安装包只含界面，不含执行引擎。</p>
-              </div>
-              <div class="root-input-group">
-                <input type="text" id="input-project-root" class="form-input" placeholder="/path/to/aipunch" />
-                <button id="btn-save-project-root" class="btn-secondary" style="white-space: nowrap;" data-i18n="rootSave">保存并重载</button>
-              </div>
-            </div>
-          </div>
         </section>
       </main>
 

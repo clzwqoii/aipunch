@@ -1203,7 +1203,7 @@ input:checked + .slider:before {
   color: var(--text-primary);
 }
 
-/* 平台专属色彩徽章（提升扫描辨识度） */
+/* 供应商彩色徽章：卡片唯一身份标识（无文案标题，凭徽章 + 描述识别） */
 .provider-badge {
   padding: 3px 9px;
   border-radius: var(--radius-xs);
@@ -1236,6 +1236,10 @@ input:checked + .slider:before {
 
 .badge-autoclaw-cn {
   background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+}
+
+.badge-raccoon {
+  background: linear-gradient(135deg, #f97316 0%, #facc15 100%);
 }
 
 .wizard-card p {
@@ -1299,12 +1303,6 @@ input:checked + .slider:before {
   margin-top: 6px;
   font-size: 12.5px;
   color: var(--text-secondary);
-}
-
-.root-input-group {
-  display: flex;
-  gap: 10px;
-  margin-top: 6px;
 }
 
 /* ========================================================
@@ -1930,6 +1928,8 @@ input:checked + .slider:before {
   display: flex;
   gap: 10px;
   font-size: 12px;
+  /* 右侧消息换行时，状态标签与账号名相对整块内容垂直居中 */
+  align-items: center;
 }
 
 .history-row.ok .history-acct {
@@ -1968,6 +1968,17 @@ input:checked + .slider:before {
   margin-left: auto;
   font-size: 11px;
   color: #10b981;
+}
+
+/* 凭证未导入：中性描边，与「✓ 凭证有效」成对出现，缺状态不自解释 */
+.cred-missing {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  white-space: nowrap;
 }
 
 /* 一键签到执行中的加载动画（按钮文案保持不变） */

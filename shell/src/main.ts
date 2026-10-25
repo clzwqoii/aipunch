@@ -71,6 +71,12 @@ const PROVIDER_METAS: Record<
     brandChar: "A",
     hintKey: "autoclawCnHint",
   },
+  raccoon: {
+    name: "小浣熊",
+    iconBg: "linear-gradient(135deg, #f97316 0%, #facc15 100%)",
+    brandChar: "浣",
+    hintKey: "raccoonHint",
+  },
 };
 
 let currentConfig: AppConfig = { accounts: [] };
@@ -89,6 +95,7 @@ const CREDENTIAL_RUNNERS = new Set([
   "autoclaw-intl-login",
   "login",
   "trae-extract",
+  "raccoon-extract",
 ]);
 
 const CREDENTIAL_LABELS: Record<string, string> = {
@@ -99,6 +106,7 @@ const CREDENTIAL_LABELS: Record<string, string> = {
   "autoclaw-intl-login": "AutoClaw 国际版授权",
   login: "凭证登录",
   "trae-extract": "Trae 本地凭证提取",
+  "raccoon-extract": "小浣熊凭证提取",
 };
 
 // 轻量 toast：右上角出现，成功绿失败红，4 秒自动消失
@@ -126,7 +134,6 @@ async function init() {
   renderInitialTerminalLogs();
   await setupEventListeners();
   await loadPrivacyMode();
-  await setupProjectRoot();
   await loadConfigAndState();
   // 启动静默同步 + 每 30 分钟拉一次云端结果（ADR 0004：定时 cron 的结果桌面端可见）
   setTimeout(() => void runCiSync(true), 3000);
@@ -478,27 +485,6 @@ interface RunRecord {
 let runHistory: RunRecord[] = [];
 
 // 结构化结果由 ci-checkin 从 CI artifact 写入，卡片余额只读这份数据
-// 内置引擎模式：显示数据目录并禁止修改（执行引擎随安装包提供）
-async function loadRuntimeInfo(): Promise<void> {
-  try {
-    const info = await invoke<{ bundled: boolean; workDir: string }>("get_runtime_info");
-    const input = document.getElementById("input-project-root") as HTMLInputElement | null;
-    const save = document.getElementById("btn-save-project-root") as HTMLButtonElement | null;
-    if (!info.bundled) return;
-    if (input) {
-      input.value = info.workDir;
-      input.disabled = true;
-    }
-    if (save) save.disabled = true;
-    const title = document.getElementById("root-title");
-    const desc = document.getElementById("root-desc");
-    if (title) title.textContent = t("rootDataTitle");
-    if (desc) desc.textContent = t("rootDataDesc");
-  } catch {
-    /* 旧版后端无该命令时保持原有行为 */
-  }
-}
-
 async function loadLastRun(): Promise<void> {
   try {
     const data = await invoke<{ results?: LastRunEntry[]; succeeded?: number; total?: number; finishedAt?: string; runUrl?: string } | null>(
@@ -551,6 +537,7 @@ const CRED_BRAND_PROVIDER: Record<string, string> = {
   autoclaw: "autoclaw-intl",
   workbuddy: "workbuddy",
   "autoclaw-cn": "autoclaw",
+  raccoon: "raccoon",
 };
 
 // 最近一次运行成功即视为凭证有效，禁用重复导入
@@ -563,14 +550,15 @@ function applyCredentialState(): void {
       btn.disabled = valid;
       btn.title = valid ? t("credValid") : "";
     }
-    const badge = card.querySelector<HTMLElement>(".cred-valid");
-    if (valid && !badge) {
+    // 每张卡恒有状态：有效=绿 ✓；未导入=中性描边（缺状态不自解释）
+    const badge = card.querySelector<HTMLElement>(".cred-valid, .cred-missing");
+    const cls = valid ? "cred-valid" : "cred-missing";
+    if (!badge || badge.className !== cls) {
+      badge?.remove();
       const span = document.createElement("span");
-      span.className = "cred-valid";
-      span.textContent = `✓ ${t("credValid")}`;
+      span.className = cls;
+      span.textContent = valid ? `✓ ${t("credValid")}` : t("credMissing");
       card.querySelector(".wizard-header")?.appendChild(span);
-    } else if (!valid && badge) {
-      badge.remove();
     }
   });
 }
@@ -682,7 +670,6 @@ async function loadConfigAndState() {
     renderPlatformCards();
     renderCloudConfig();
     void loadLastRun();
-    void loadRuntimeInfo();
     updateActiveBadge();
   } catch (e) {
     appendTerminalLog(`[ERROR] Failed to load config: ${e}`);
@@ -1153,32 +1140,6 @@ async function loadPrivacyMode() {
   fullSwitch?.addEventListener("change", onPrivacyChange);
 }
 
-// 8.1 项目根目录：打包后运行位置可能不在仓库内，需要显式指定 config.json / .env 所在目录
-async function setupProjectRoot() {
-  const input = document.getElementById("input-project-root") as HTMLInputElement | null;
-  const saveBtn = document.getElementById("btn-save-project-root");
-  if (!input || !saveBtn) return;
-
-  try {
-    input.value = await invoke<string>("get_project_root");
-  } catch (e) {
-    console.warn("Failed to read project root:", e);
-  }
-
-  saveBtn.addEventListener("click", async () => {
-    const path = input.value.trim();
-    if (!path) return;
-    try {
-      await invoke("set_project_root", { path });
-      appendTerminalLog(`[CONFIG] 项目根目录已设为 ${path}`);
-      await loadConfigAndState();
-      await loadPrivacyState();
-    } catch (e) {
-      appendTerminalLog(`[ERROR] 项目根目录无效: ${e}`);
-    }
-  });
-}
-
 // 9. 凭据向导绑定与执行
 function setupCredentialButtons() {
   document.getElementById("btn-import-qoder")?.addEventListener("click", () => openAuthModal("qoder"));
@@ -1187,6 +1148,7 @@ function setupCredentialButtons() {
   document.getElementById("btn-import-autoclaw")?.addEventListener("click", () => openAuthModal("autoclaw-intl"));
   document.getElementById("btn-import-workbuddy")?.addEventListener("click", () => openAuthModal("workbuddy"));
   document.getElementById("btn-import-autoclaw-cn")?.addEventListener("click", () => openAuthModal("autoclaw-cn"));
+  document.getElementById("btn-import-raccoon")?.addEventListener("click", () => startRunner("raccoon-extract", []));
 
   document.getElementById("btn-modal-close")?.addEventListener("click", closeModal);
   document.getElementById("btn-modal-cancel")?.addEventListener("click", closeModal);
@@ -1313,6 +1275,12 @@ function openAuthModal(provider: string) {
   }
   if (MANUAL_TOKEN_UNSUPPORTED.has(provider)) {
     modal.querySelector("[data-auth-web-card]")?.remove();
+  }
+  // AutoClaw 国内版：网页与本机 App 两条途径都只是「打开/启动」，无法回传凭证——
+  // 展示出来等于承诺了一种不会发生的导入，只留短信快捷登录与手动 Token
+  if (provider === "autoclaw-cn") {
+    modal.querySelector("[data-auth-web-card]")?.remove();
+    modal.querySelector("[data-auth-app-card]")?.remove();
   }
 
   // 隐藏全局确认按钮，由卡片内各自的具体动作驱动

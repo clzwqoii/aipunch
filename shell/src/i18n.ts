@@ -51,6 +51,7 @@ export const translations = {
     workbuddyHint: "每日连续签到",
     autoclawHint: "+400 积分/天",
     autoclawCnHint: "国内版待验证",
+    raccoonHint: "登录保 7 天有效期",
     unknownHint: "待确认",
 
     termTitle: "实时开发者控制台",
@@ -66,6 +67,9 @@ export const translations = {
     historyEmpty: "暂无执行记录：点击「一键签到全部」或等待定时任务。",
     historySkipped: "已签跳过",
     credValid: "凭证有效",
+    credMissing: "未导入",
+    credRaccoonDesc: "一键提取本机小浣熊客户端登录态（与客户端共享会话，token 直用为主）。",
+    credRaccoonBtn: "一键提取本地凭证",
 
     cloudTitle: "云端 CI",
     cloudSub: "平台绑定、状态同步与运行记录（单执行端单选）",
@@ -134,27 +138,16 @@ export const translations = {
 
     credTitle: "凭证一键导入向导",
     credSub: "六大官方授权向导，零手动抓包配置",
-    credQoderTitle: "Qoder PAT 官方兑换",
     credQoderDesc: "输入开发者个人访问令牌（PAT），一键兑换并自动回写凭证。",
     credQoderBtn: "启动 PAT 兑换向导",
-
-    credTraeTitle: "Trae 本地凭证提取",
     credTraeDesc: "从本机客户端已登录存储直接解密读取设备号与 Refresh Token。",
     credTraeBtn: "一键提取本机凭证",
-
-    credCodeartsTitle: "码道 CodeArts 授权",
     credCodeartsDesc: "调起浏览器完成 OAuth PKCE 授权，自动生成与绑定 DPoP 密钥对。",
     credCodeartsBtn: "启动 OAuth 授权向导",
-
-    credAutoclawTitle: "AutoClaw 国际版授权",
     credAutoclawDesc: "调起官方安全验证并绑定设备 ID，自动保存刷新令牌。",
     credAutoclawBtn: "启动授权向导",
-
-    credWorkbuddyTitle: "WorkBuddy 短信登录",
     credWorkbuddyDesc: "输入手机号获取短信验证码，一键获取并保存刷新令牌。",
     credWorkbuddyBtn: "启动短信登录向导",
-
-    credAutoclawCnTitle: "AutoClaw 国内版登录",
     credAutoclawCnDesc: "智谱 AutoGLM 国内版短信验证码登录，支持自动回写凭据。",
     credAutoclawCnBtn: "启动国内版登录向导",
 
@@ -184,11 +177,6 @@ export const translations = {
     privacySub: "安全边界与本机登录态探测策略",
     privacyItemTitle: "禁止本地凭证扫描 (CHECKIN_NO_DISCOVERY)",
     privacyItemDesc: "开启后，完全禁止桌面壳探测本机其他桌面应用的登录文件，仅依赖显式配置的环境变量。",
-    rootTitle: "执行引擎目录",
-    rootDataTitle: "数据目录",
-    rootDataDesc: "内置引擎已随安装包提供；此处保存凭证（.env）、config.json 与运行记录。",
-    rootDesc: "签到由该目录下的 Node 脚本执行，需包含 config.json 与 package.json。安装包只含界面，不含执行引擎。",
-    rootSave: "保存并重载",
 
     tabBrowser: "🌐 官方网页/浏览器登录",
     tabLocalApp: "💻 本地客户端 / 一键提取",
@@ -258,6 +246,7 @@ export const translations = {
     workbuddyHint: "Daily Check-in",
     autoclawHint: "+400 pts/day",
     autoclawCnHint: "CN version pending",
+    raccoonHint: "Login keeps 7-day validity",
     unknownHint: "Unknown",
 
     termTitle: "Live Developer Terminal",
@@ -273,6 +262,9 @@ export const translations = {
     historyEmpty: "No runs yet — click Run All or wait for the scheduled run.",
     historySkipped: "Skipped (already checked in)",
     credValid: "Valid",
+    credMissing: "Not imported",
+    credRaccoonDesc: "One-click extract of the local Raccoon client session (shared with the client; access-token first).",
+    credRaccoonBtn: "Extract local credentials",
 
     cloudTitle: "Cloud CI",
     cloudSub: "Platform binding, state sync, and run history (single executor)",
@@ -341,27 +333,16 @@ export const translations = {
 
     credTitle: "Credentials Import",
     credSub: "Six official authentication wizards, zero manual packet inspection",
-    credQoderTitle: "Qoder PAT Exchange",
     credQoderDesc: "Enter your Personal Access Token to exchange and save credentials automatically.",
     credQoderBtn: "Start PAT Wizard",
-
-    credTraeTitle: "Trae Local Extract",
     credTraeDesc: "Decrypt and extract device ID and refresh token from local client storage.",
     credTraeBtn: "Extract Local Credentials",
-
-    credCodeartsTitle: "CodeArts PKCE Auth",
     credCodeartsDesc: "Launch browser for OAuth PKCE flow and generate bound DPoP key pair.",
     credCodeartsBtn: "Launch OAuth Wizard",
-
-    credAutoclawTitle: "AutoClaw Intl Auth",
     credAutoclawDesc: "Trigger official captcha verification, bind device ID, and save refresh token.",
     credAutoclawBtn: "Launch Auth Wizard",
-
-    credWorkbuddyTitle: "WorkBuddy SMS Login",
     credWorkbuddyDesc: "Enter phone number to receive SMS code and automatically save refresh token.",
     credWorkbuddyBtn: "Launch SMS Wizard",
-
-    credAutoclawCnTitle: "AutoClaw CN SMS Login",
     credAutoclawCnDesc: "Zhipu AutoGLM SMS login with automatic credential saving.",
     credAutoclawCnBtn: "Launch CN Wizard",
 
@@ -391,11 +372,6 @@ export const translations = {
     privacySub: "Security boundary and credential discovery control",
     privacyItemTitle: "Disable Credential Discovery (CHECKIN_NO_DISCOVERY)",
     privacyItemDesc: "When enabled, disables local disk discovery of desktop client session files, strictly relying on environment variables.",
-    rootTitle: "Engine directory",
-    rootDataTitle: "Data directory",
-    rootDataDesc: "The engine ships with the app; credentials (.env), config.json and run history live here.",
-    rootDesc: "Check-ins run via the Node scripts in this directory (must contain config.json and package.json). The app bundle only ships the UI, not the engine.",
-    rootSave: "Save & Reload",
 
     tabBrowser: "🌐 Official Web / Browser",
     tabLocalApp: "💻 Local App / Extract",
