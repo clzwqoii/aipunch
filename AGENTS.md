@@ -64,7 +64,7 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 - 句柄被覆盖 = 进程失控：Rust `Child` 被 drop 不会杀进程。登记前必须确认没有活着的旧句柄，否则「停止」只杀得到最后一个，其余进程继续跑并发 `script-finished`，把前端 `isRunning` 提前复位。
 - 前端 `isRunning`、按钮禁用属于 UX 兜底，不能当作后端正确性的前提。
 - 这类状态改动按 TDD 补一条能失败的测试；确实无法构造（如需 Tauri `AppHandle`）时，在代码旁注释写明原因与手测路径（例：连点两次「一键签到全部」应得到「已有任务在运行」，再点「停止」应能结束且无残留进程）。
-- **签到执行端唯一（平台单选，ADR 0004）**：执行平台在 `config.json` 的 `platform` 字段单选（`local` / `github-actions`，`cloudflare-workers` 为 P2 预留）。`github-actions` 下「一键签到」走 `ci-checkin` 触发 workflow（`workflow_dispatch` + `concurrency: checkin`），本地不直接跑 `npm run checkin`；`local` 下走内置引擎本地执行，轮换票由 `cli.ts` 自动写回 `.env`。凭证是单次轮换票，任何两个执行端并存（含跨平台）都会互相作废。云端结果由 `ci-sync` 拉取合并（`.aipunch-last-run.json` 按 `runId` 防重复）。
+- **签到执行端唯一（平台单选，ADR 0004）**：执行平台在 `config.json` 的 `platform` 字段单选（`local` / `github-actions`，`cloudflare-workers` 为 P2 预留）。`github-actions` 下「一键签到」走 `ci-checkin` 触发 workflow（`workflow_dispatch` + `concurrency: checkin`），本地不直接跑 `npm run checkin`；`local` 下走内置引擎本地执行，轮换票由 `cli.ts` 自动写回 `.env`。凭证是单次轮换票，任何两个执行端并存（含跨平台）都会互相作废。云端结果由 `ci-sync` 拉取合并（`.aipunch-last-run.json` 按 `runId` 防重复）。**当前生效平台：cloudflare-workers**（桌面端平台卡已选，GH `checkin.yml` 保持禁用是设计态而非故障；worker cron 每日 11:00 北京执行，凭证链在 worker secrets 内自轮换）。**CF 增量变更走选择性部署**（`putKvValue('config')` + 脚本上传 + 只推新增账号 secret）：全量 `cf-deploy` 会用本地 `.env` 旧票覆盖 worker 自轮换的新链，曾导致「重导入 trae/codearts 票」（2026-10-25 取证）。
 
 ## 安全边界
 
