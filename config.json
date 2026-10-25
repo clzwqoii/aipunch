@@ -37,6 +37,12 @@
       "tokenEnv": "RACCOON_ACCESS_TOKEN",
       "refreshTokenEnv": "RACCOON_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "autoclaw",
+      "name": "main",
+      "refreshTokenEnv": "AUTOCLAW_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }

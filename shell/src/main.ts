@@ -102,7 +102,7 @@ const CREDENTIAL_LABELS: Record<string, string> = {
   "trae-login": "Trae 浏览器授权",
   "codearts-login": "CodeArts OAuth 授权",
   "qoder-login": "Qoder PAT 兑换",
-  "autoclaw-login": "AutoClaw 授权",
+  "autoclaw-login": "AutoClaw 国内版登录",
   "autoclaw-intl-login": "AutoClaw 国际版授权",
   login: "凭证登录",
   "trae-extract": "Trae 本地凭证提取",
@@ -540,11 +540,26 @@ const CRED_BRAND_PROVIDER: Record<string, string> = {
   raccoon: "raccoon",
 };
 
+// 各导入卡对应的凭证键：凭证写入 .env 即视为「已导入」，不依赖账号接入与运行结果
+const CRED_BRAND_ENV_KEYS: Record<string, string[]> = {
+  qoder: ["QODER_REFRESH_TOKEN"],
+  trae: ["TRAE_REFRESH_TOKEN"],
+  codearts: ["CODEARTS_REFRESH_TOKEN"],
+  autoclaw: ["AUTOCLAW_INTL_REFRESH_TOKEN"],
+  workbuddy: ["WORKBUDDY_REFRESH_TOKEN"],
+  "autoclaw-cn": ["AUTOCLAW_REFRESH_TOKEN"],
+  raccoon: ["RACCOON_ACCESS_TOKEN", "RACCOON_REFRESH_TOKEN"],
+};
+
 // 最近一次运行成功即视为凭证有效，禁用重复导入
 function applyCredentialState(): void {
   document.querySelectorAll<HTMLElement>(".wizard-card[data-brand]").forEach((card) => {
     const provider = CRED_BRAND_PROVIDER[card.dataset.brand ?? ""];
-    const valid = !!provider && lastRunEntries.some((r) => r.provider === provider && r.ok);
+    // 凭证已写入 .env 即有效（导入即翻绿）；运行成功作为补充判据（覆盖进程环境注入凭证的场景）
+    const imported = CRED_BRAND_ENV_KEYS[card.dataset.brand ?? ""]?.some((key) =>
+      configuredEnvKeys.includes(key),
+    );
+    const valid = imported || (!!provider && lastRunEntries.some((r) => r.provider === provider && r.ok));
     const btn = card.querySelector<HTMLButtonElement>(".wizard-action-btn");
     if (btn) {
       btn.disabled = valid;
@@ -662,6 +677,8 @@ async function loadConfigAndState() {
     // （CF_KV_NAMESPACE 随部署成功写回，作为 CF 卡「已部署」状态的事实源）
     const envKeys = [
       ...currentConfig.accounts.flatMap((acc) => [acc.tokenEnv, acc.refreshTokenEnv]),
+      // 凭证导入卡的键也要查：导入成功但账号未接入时，卡片状态才有事实源
+      ...Object.values(CRED_BRAND_ENV_KEYS).flat(),
       "CF_KV_NAMESPACE",
     ].filter((key): key is string => !!key);
     configuredEnvKeys = await invoke<string[]>("get_env_status", { keys: envKeys });
