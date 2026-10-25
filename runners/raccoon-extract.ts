@@ -37,12 +37,19 @@ function main(): void {
   }
   if (process.argv.includes('--print')) {
     console.log(`RACCOON_REFRESH_TOKEN=${auth.refresh_token}`);
+    if (auth.access_token) console.log(`RACCOON_ACCESS_TOKEN=${auth.access_token}`);
     return;
   }
   const envFile = join(process.cwd(), '.env');
   setEnvValue(envFile, 'RACCOON_REFRESH_TOKEN', auth.refresh_token);
+  // access_token 一并写入：provider 主路径 token 直用（与客户端共享会话，能不刷新就不刷新），
+  // 只在 401 时才走 refresh 兜底
+  if (auth.access_token) {
+    setEnvValue(envFile, 'RACCOON_ACCESS_TOKEN', auth.access_token);
+    console.log(`RACCOON_ACCESS_TOKEN=${mask(auth.access_token)} 已写入 ${envFile}`);
+  }
   console.log(`RACCOON_REFRESH_TOKEN=${mask(auth.refresh_token)} 已写入 ${envFile}（token 不明文显示）`);
-  console.log('config.json 加账号：{ "provider": "raccoon", "name": "main", "refreshTokenEnv": "RACCOON_REFRESH_TOKEN", "enabled": true }');
+  console.log('config.json 加账号：{ "provider": "raccoon", "name": "main", "tokenEnv": "RACCOON_ACCESS_TOKEN", "refreshTokenEnv": "RACCOON_REFRESH_TOKEN", "enabled": true }');
 }
 
 main();

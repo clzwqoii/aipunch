@@ -1,13 +1,17 @@
 import type { Account, CheckinResult, Provider, RunContext } from '../core/types.ts';
 
-// 商汤小浣熊每日积分（登录触发型，契约来源 CencYun/agent2api，2026-09 实测）：
-// 每日积分由桌面客户端调用 setting_info 时按天幂等触发，再用积分账单核对到账——
-// 所谓「自动到账」是客户端代劳，API 层面可自动化（用户一手账本实证需登录才拿得到）。
+// 商汤小浣熊每日积分（登录触发型，2026-10-19 用户账本实证 + 2026-10-24 复测）：
+// 每日积分 00:00 无条件自动发放（当日清零）；**当天有登录动作时有效期延长至 7 天**。
+// 积分本身闭眼发，「签到」的真正价值是延长有效期——所以成功判据是
+// 最新 daily_grant 条目的 expire_at − grant_at 档位（当日清零 ≈ 86399s，延效 ≈ 604799s），
+// 而非「今日有入账」（那只证明发放存在，不证明延效）。纯时长差值判定，零时区依赖。
+// 登录动作的归因未定（setting_info / refresh / 独立登录事件），当前组合拳一次全覆盖：
+// token 直用（能不刷新就不刷新，凭证与桌面客户端共享会话）→ setting_info（桌面客户端头）→ bills 核对。
+// 组合不生效时再按 setting_info-only / refresh-only 做归因实验（实验日不可碰客户端）。
 //   POST {origin}/api/web/auth/v1/refresh   body { refresh_token } → data.access_token / data.refresh_token
-//   GET  {origin}/api/web/office/v3/setting_info   桌面客户端头，按天幂等触发发放
-//   GET  {origin}/api/web/points/v1/bills?paging.limit=20&paging.offset=0   核对今日账本积分入账
-// 成功判据是「今日账单确有积分入账」而非 HTTP 状态（Agent2API 同款口径，不谎报成功）。
-// 冷启动：~/.box-agent/config/auth.json 明文（access_token/refresh_token，全平台无需解密）。
+//   GET  {origin}/api/web/office/v3/setting_info   桌面客户端头，客户端启动即调（Agent2API desktop-grant 链 + dsh-our-free-model #430 双来源确认）
+//   GET  {origin}/api/web/points/v1/bills?paging.limit=100&paging.offset=0   核对延效档位
+// 冷启动：npm run raccoon-extract 读 ~/.box-agent/config/auth.json 明文写 .env。
 const ORIGIN = process.env.RACCOON_MAIN_SITE_URL ?? 'https://xiaohuanxiong.com';
 const AUTH_BASE = `${ORIGIN}/api/web/auth/v1`;
 const SETTING_INFO_URL = `${ORIGIN}/api/web/office/v3/setting_info`;
@@ -18,13 +22,16 @@ const CLIENT_HEADERS = {
   'X-Client-Version': 'v1.0.0',
   'X-Raccoon-Language': 'zh',
 };
+// 延效下限：超过 2 天视为「已延长」（实测只有两档：86399s / 604799s，2 天居中即可）
+const EXTENDED_MIN_MS = 48 * 3600_000;
+// 新鲜度护栏：最新发放的 grant_at 距今超过 48h 说明今日（上游自然日）未发放，
+// 不拿昨天的延效记录谎报成功
+const RECENT_MAX_MS = 48 * 3600_000;
 
 type JsonBody = {
   code?: number;
   message?: string;
   msg?: string;
-  access_token?: string;
-  refresh_token?: string;
   data?: Record<string, unknown>;
 };
 
@@ -57,17 +64,17 @@ async function refreshAccessToken(
   return { accessToken, rotatedRefreshToken: rotated && rotated !== refreshToken ? rotated : undefined };
 }
 
-function localDate(now: Date): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
 export const raccoon: Provider = {
   id: 'raccoon',
   name: '商汤小浣熊',
   async checkin(account: Account, ctx: RunContext): Promise<CheckinResult> {
     let accessToken = account.token;
     let rotatedRefreshToken: string | undefined;
-    if (account.refreshToken) {
+    if (!accessToken && !account.refreshToken) {
+      return { ok: false, message: '账号缺少凭证：需要 tokenEnv 或 refreshTokenEnv' };
+    }
+    // 只有 refreshToken 时直接先换（access token 实测存活 ≥7 天，为空时没必要先打一发注定 401 的）
+    if (!accessToken && account.refreshToken) {
       try {
         const refreshed = await refreshAccessToken(account.refreshToken, ctx);
         accessToken = refreshed.accessToken;
@@ -76,14 +83,23 @@ export const raccoon: Provider = {
         return { ok: false, message: (err as Error).message };
       }
     }
-    if (!accessToken) {
-      return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
-    }
 
-    // 第一步：触发每日积分发放（按天幂等，重复调用不重复发放）
-    const triggerRes = await ctx.fetch(SETTING_INFO_URL, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}`, ...CLIENT_HEADERS },
-    });
+    // 第一步：setting_info 触发（token 直用；401/403 才刷新重试一次）
+    const triggerOnce = () =>
+      ctx.fetch(SETTING_INFO_URL, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}`, ...CLIENT_HEADERS },
+      });
+    let triggerRes = await triggerOnce();
+    if ((triggerRes.status === 401 || triggerRes.status === 403) && account.refreshToken) {
+      try {
+        const refreshed = await refreshAccessToken(account.refreshToken, ctx);
+        accessToken = refreshed.accessToken;
+        rotatedRefreshToken = refreshed.rotatedRefreshToken;
+      } catch (err) {
+        return { ok: false, message: (err as Error).message };
+      }
+      triggerRes = await triggerOnce();
+    }
     const trigger = await parseJson(triggerRes);
     if (!trigger.data) {
       return {
@@ -92,38 +108,72 @@ export const raccoon: Provider = {
         rotatedRefreshToken,
       };
     }
+    if (trigger.data.code !== 0) {
+      return {
+        ok: false,
+        message: `触发失败: code=${trigger.data.code} ${trigger.data.message ?? trigger.data.msg ?? ''}`.trim(),
+        rotatedRefreshToken,
+      };
+    }
 
-    // 第二步：核对今日账本确有积分入账（成功判据是实收，不是 HTTP 状态）
+    // 第二步：bills 核对最新 daily_grant 的延效档位（成功判据是有效期被延长，不是有入账）
     const billsRes = await ctx.fetch(BILLS_URL, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     });
     const bills = await parseJson(billsRes);
-    if (!bills.data) {
+    if (!bills.data || bills.data.code !== 0) {
       return {
         ok: false,
-        message: `账本核对失败: HTTP ${billsRes.status} ${bills.text.slice(0, 100)}`,
+        message: `账本核对失败: HTTP ${billsRes.status} ${String(bills.data?.message ?? bills.text).slice(0, 100)}`,
         detail: { trigger: trigger.data },
         rotatedRefreshToken,
       };
     }
     const items = (bills.data.data?.items ?? []) as Array<Record<string, unknown>>;
-    const today = localDate(ctx.now);
-    const todayPoints = items
-      .filter((item) => Number(item.points) > 0 && String(item.created_at ?? '').slice(0, 10) === today)
-      .reduce((sum, item) => sum + Number(item.points), 0);
-
-    if (todayPoints <= 0) {
+    // 账单按 created_at 倒序，首条 daily_grant 即最新发放
+    const latest = items.find((item) => item.biz_type === 'daily_grant') as
+      | { points?: unknown; grant_at?: unknown; expire_at?: unknown }
+      | undefined;
+    if (!latest) {
       return {
         ok: false,
-        message: '触发后今日账本无积分入账（未生效，下轮重试）',
-        detail: { trigger: trigger.data, bills: bills.data },
+        message: '账单窗口内无每日发放（daily_grant）记录',
+        detail: { trigger: trigger.data },
+        rotatedRefreshToken,
+      };
+    }
+    const grantAt = Date.parse(String(latest.grant_at ?? ''));
+    const expireAt = Date.parse(String(latest.expire_at ?? ''));
+    if (!Number.isFinite(grantAt) || !Number.isFinite(expireAt)) {
+      return {
+        ok: false,
+        message: `发放记录缺少 grant_at/expire_at: ${JSON.stringify(latest).slice(0, 120)}`,
+        detail: { trigger: trigger.data },
+        rotatedRefreshToken,
+      };
+    }
+    const ageMs = ctx.now.getTime() - grantAt;
+    if (ageMs > RECENT_MAX_MS) {
+      return {
+        ok: false,
+        message: `今日未发放：最近一次发放是 ${Math.floor(ageMs / 3600_000)} 小时前（超过 48h）`,
+        detail: { trigger: trigger.data, latestGrant: latest },
+        rotatedRefreshToken,
+      };
+    }
+    const validMs = expireAt - grantAt;
+    if (validMs < EXTENDED_MIN_MS) {
+      return {
+        ok: false,
+        message: `有效期未延长（当日至 ${String(latest.expire_at)} 清零）——登录触发性未生效，明日重试`,
+        detail: { trigger: trigger.data, latestGrant: latest },
         rotatedRefreshToken,
       };
     }
     return {
       ok: true,
-      message: `每日积分已到账：+${todayPoints} 积分`,
-      detail: { trigger: trigger.data, todayPoints, rotatedRefreshToken },
+      message: `每日积分 +${Number(latest.points ?? 0)} 已发放，有效期已延长至 ${String(latest.expire_at)}`,
+      detail: { trigger: trigger.data, latestGrant: latest },
       rotatedRefreshToken,
     };
   },

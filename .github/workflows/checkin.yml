@@ -51,6 +51,9 @@ jobs:
           TRAE_DEVICE_ID: ${{ secrets.TRAE_DEVICE_ID }}
           TRAE_MACHINE_ID: ${{ secrets.TRAE_MACHINE_ID }}
           TRAE_USER_ID: ${{ secrets.TRAE_USER_ID }}
+          # 小浣熊：主路径 token 直用（与桌面客户端共享会话，能不刷新就不刷新），401 才走 refresh
+          RACCOON_ACCESS_TOKEN: ${{ secrets.RACCOON_ACCESS_TOKEN }}
+          RACCOON_REFRESH_TOKEN: ${{ secrets.RACCOON_REFRESH_TOKEN }}
           # 可选：对仓库有管理员权限的 PAT，用于自动回写轮换后的 Secret
           GH_PAT: ${{ secrets.GH_PAT }}
           # 桌面端单平台/单账号触发时的过滤参数（workflow_dispatch inputs）

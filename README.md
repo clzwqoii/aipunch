@@ -27,7 +27,7 @@
 | AutoClaw 国际版 | [autoclaw.z.ai](https://autoclaw.z.ai) | 每日签到（任务领取） | 可用 | `daily_signin` 任务，实测 +400 积分/天；`npm run autoclaw-intl-login -- --oauth` 浏览器官方授权（阿里云滑块 + 本地回调）；真实 token 实跑确认 |
 | AutoClaw 国内版 | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 🔬 待验证 | 赠送积分由登录动作触发（用户账本实证），无常驻签到任务；Provider 每日刷新会话即登录动作，账号暂未接入 |
 | 码道 CodeArts | [huaweicloud.com/codearts](https://www.huaweicloud.com/product/codearts.html) | 每日签到（官方活动） | 可用 | 每日 1000 积分，2026-12-31 截止；三步签到（delivery→claim→confirm）；`npm run codearts-login` 浏览器授权；DPoP 换票 + HMAC 签名链路实跑确认，领取路径待定时运行覆盖 |
-| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 每日自动发放 | 无需自动化 | 每日积分每天 00:00 自动发放 +300，默认当日 24:00 清零；当天登录后有效期延长至 7 天（用户账本实证：未登录日「有效期至当日」，登录日「延至 7 天后」）。发放无需动作，登录延效非签到形态，不接 |
+| 商汤小浣熊 | [xiaohuanxiong.com](https://www.xiaohuanxiong.com) | 登录延效 | 可用 | 每日积分 00:00 自动发放 +300，默认当日 24:00 清零；**当天有登录动作才延长至 7 天**。Provider 每日以桌面客户端身份调 `setting_info`（登录动作组合拳）并用账本 `expire_at` 档位核对延效（真实 token 实跑确认）；`npm run raccoon-extract` 从本机客户端导入凭证（与客户端共享会话，token 直用为主） |
 
 ## 桌面壳（主推使用方式）
 

@@ -13,6 +13,7 @@
     "autoclaw-login": "tsx runners/autoclaw-login.ts",
     "autoclaw-intl-login": "tsx runners/autoclaw-intl-login.ts",
     "codearts-login": "tsx runners/codearts-login.ts",
+    "raccoon-extract": "tsx runners/raccoon-extract.ts",
     "checkin": "tsx runners/cli.ts",
     "ci-checkin": "tsx runners/ci-checkin.ts",
     "ci-sync": "tsx runners/ci-sync.ts",

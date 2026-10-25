@@ -30,6 +30,13 @@
       "name": "main",
       "refreshTokenEnv": "AUTOCLAW_INTL_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "raccoon",
+      "name": "main",
+      "tokenEnv": "RACCOON_ACCESS_TOKEN",
+      "refreshTokenEnv": "RACCOON_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }
