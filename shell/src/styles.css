@@ -931,6 +931,50 @@ html[data-theme="light"] .pts-number {
   font-size: 16px;
   color: #fff;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  position: relative;
+}
+
+/* 凭证状态呼吸点（Logo 角标）：绿=正常，红=需重新授权，琥珀=未授权，蓝=待验证；
+   颜色即状态，细节进悬停提示。失效态脉冲更快以示警示 */
+.auth-dot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-card);
+  animation: auth-breath 2.4s ease-in-out infinite;
+  z-index: 1;
+}
+
+@keyframes auth-breath {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+.auth-dot.ready {
+  background: #10b981;
+}
+
+.auth-dot.linked {
+  background: #38bdf8;
+}
+
+.auth-dot.unconfigured {
+  background: #f59e0b;
+}
+
+.auth-dot.auth-invalid {
+  background: #f87171;
+  animation-duration: 1.1s;
 }
 
 .brand-text h4 {

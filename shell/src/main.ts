@@ -429,7 +429,7 @@ async function setupEventListeners() {
     appendTerminalLog(event.payload);
   });
 
-  await listen<number>("script-finished", (event) => {
+  await listen<number>("script-finished", async (event) => {
     isRunning = false;
     setRunButton(false);
     const resolve = runnerResolve;
@@ -439,6 +439,8 @@ async function setupEventListeners() {
     if (CREDENTIAL_RUNNERS.has(currentScriptName)) {
       const label = CREDENTIAL_LABELS[currentScriptName] ?? currentScriptName;
       showToast(event.payload === 0, `${label} ${event.payload === 0 ? "成功，凭证已保存" : `失败（代码 ${event.payload}），详情见终端日志`}`);
+      // 导入成功 → 账号管理自动登记（联动：凭证导入与账号管理不再是两本账）
+      if (event.payload === 0) await ensureCredentialAccount(currentScriptName);
     }
     currentScriptName = "";
     renderStatusText();
@@ -551,6 +553,41 @@ const CRED_BRAND_ENV_KEYS: Record<string, string[]> = {
   raccoon: ["RACCOON_ACCESS_TOKEN", "RACCOON_REFRESH_TOKEN"],
 };
 
+// 导入成功 → 账号管理自动登记（provider 相同的账号只登记一次，多账号仍走手编 config.json）
+const RUNNER_ACCOUNTS: Record<string, { provider: string; tokenEnv?: string; refreshTokenEnv: string }> = {
+  "trae-login": { provider: "trae", refreshTokenEnv: "TRAE_REFRESH_TOKEN" },
+  "trae-extract": { provider: "trae", refreshTokenEnv: "TRAE_REFRESH_TOKEN" },
+  "codearts-login": { provider: "codearts", refreshTokenEnv: "CODEARTS_REFRESH_TOKEN" },
+  "qoder-login": { provider: "qoder", refreshTokenEnv: "QODER_REFRESH_TOKEN" },
+  "autoclaw-login": { provider: "autoclaw", refreshTokenEnv: "AUTOCLAW_REFRESH_TOKEN" },
+  "autoclaw-intl-login": { provider: "autoclaw-intl", refreshTokenEnv: "AUTOCLAW_INTL_REFRESH_TOKEN" },
+  login: { provider: "workbuddy", refreshTokenEnv: "WORKBUDDY_REFRESH_TOKEN" },
+  "raccoon-extract": { provider: "raccoon", tokenEnv: "RACCOON_ACCESS_TOKEN", refreshTokenEnv: "RACCOON_REFRESH_TOKEN" },
+};
+
+async function ensureCredentialAccount(scriptName: string): Promise<void> {
+  const spec = RUNNER_ACCOUNTS[scriptName];
+  if (!spec) return;
+  if (currentConfig.accounts.some((acc) => acc.provider === spec.provider)) return;
+  currentConfig.accounts.push({
+    provider: spec.provider,
+    name: "main",
+    tokenEnv: spec.tokenEnv,
+    refreshTokenEnv: spec.refreshTokenEnv,
+    enabled: true,
+  });
+  appendTerminalLog(`[CONFIG] 已自动加入账号管理：${spec.provider}/main`);
+  await saveCurrentConfig();
+}
+
+// 手动粘贴 Token 的 provider → 对应导入 runner（复用同一套账号自动登记）
+const CRED_RUNNER_BY_PROVIDER: Record<string, string> = {
+  qoder: "qoder-login",
+  "autoclaw-intl": "autoclaw-intl-login",
+  workbuddy: "login",
+  "autoclaw-cn": "autoclaw-login",
+};
+
 // 最近一次运行成功即视为凭证有效，禁用重复导入
 function applyCredentialState(): void {
   document.querySelectorAll<HTMLElement>(".wizard-card[data-brand]").forEach((card) => {
@@ -631,11 +668,16 @@ function applyDoneState(): void {
       ? lastRunEntries.find((r) => r.provider === card.dataset.provider && r.account === card.dataset.account)
       : undefined;
     const isDone = !!entry?.ok;
-    const tag = card.querySelector<HTMLElement>(".status-tag");
-    if (tag) {
-      const original = tag.dataset.statusLabel || tag.textContent || "";
-      tag.textContent = isDone ? t("cardDone") : original;
-      tag.classList.toggle("done", isDone);
+    // 今日已签标签按需创建/移除（凭证状态已改为 Logo 角标呼吸点，不复用同一标签）
+    const middle = card.querySelector<HTMLElement>(".card-middle");
+    let tag = card.querySelector<HTMLElement>(".status-tag.done");
+    if (isDone && !tag && middle) {
+      tag = document.createElement("span");
+      tag.className = "status-tag done";
+      tag.textContent = t("cardDone");
+      middle.prepend(tag);
+    } else if (!isDone && tag) {
+      tag.remove();
     }
     const play = card.querySelector<HTMLButtonElement>(".btn-icon-single");
     if (play) {
@@ -748,12 +790,13 @@ function renderProviderCards() {
     const safeAccount = escapeHtml(acc.name);
     const safeProvider = escapeHtml(acc.provider);
 
-    // 对齐设计图：第一行 Logo + Title + Switch；第二行 Status Badge + Points Hint；第三行通栏 1-Click Auth 按钮
+    // 对齐设计图：第一行 Logo（角标呼吸点=凭证状态）+ Title + Switch；第二行今日已签 + Points Hint；第三行通栏 1-Click Auth 按钮
     card.innerHTML = `
       <div class="card-top">
         <div class="provider-brand">
           <div class="provider-icon-badge" style="background: ${escapeHtml(meta.iconBg)}">
             ${escapeHtml(meta.brandChar)}
+            <span class="auth-dot ${statusClass}" title="${statusLabel}"></span>
           </div>
           <div class="brand-text">
             <h4>${safeName}</h4>
@@ -767,7 +810,6 @@ function renderProviderCards() {
       </div>
 
       <div class="card-middle">
-        <span class="status-tag ${statusClass}" data-status-label="${statusLabel}">${statusLabel}</span>
         <span class="points-hint">
           <span class="balance-line" data-balance hidden></span>
           <span class="hint-line">${pointsHintText}</span>
@@ -1223,6 +1265,8 @@ const AUTH_DETAILS: Record<string, ProviderAuthMeta> = {
 };
 
 function openAuthModal(provider: string) {
+  // 矩阵卡以账号的 provider id 打开弹窗：autoclaw（CN）与 autoclaw-cn 共用同一套国内版流程
+  if (provider === "autoclaw") provider = "autoclaw-cn";
   const modal = document.getElementById("modal-container");
   const title = document.getElementById("modal-title");
   const body = document.getElementById("modal-body");
@@ -1337,6 +1381,8 @@ function openAuthModal(provider: string) {
     try {
       await invoke("set_env_variable", { key: meta.envKey, value: token });
       appendTerminalLog(`[OK] Saved ${meta.envKey} successfully.`);
+      // 手动粘贴也是一次成功导入：同样自动登记账号
+      await ensureCredentialAccount(CRED_RUNNER_BY_PROVIDER[provider] ?? "");
       closeModal();
       loadConfigAndState();
     } catch (e) {
