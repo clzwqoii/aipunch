@@ -24,9 +24,12 @@ const CLIENT_HEADERS = {
 };
 // 延效下限：超过 2 天视为「已延长」（实测只有两档：86399s / 604799s，2 天居中即可）
 const EXTENDED_MIN_MS = 48 * 3600_000;
-// 新鲜度护栏：最新发放的 grant_at 距今超过 48h 说明今日（上游自然日）未发放，
-// 不拿昨天的延效记录谎报成功
-const RECENT_MAX_MS = 48 * 3600_000;
+
+// 北京时间自然日（上游按 UTC+8 零点发放；北京无夏令时，+8h 后取 UTC 日期即为北京日期）。
+// 不能用时长护栏代替：昨天那条延效记录距今不足 48h，会把昨天的延效谎报成今天成功。
+function beijingDateKey(ms: number): string {
+  return new Date(ms + 8 * 3600_000).toISOString().slice(0, 10);
+}
 
 type JsonBody = {
   code?: number;
@@ -132,7 +135,7 @@ export const raccoon: Provider = {
     const items = (bills.data.data?.items ?? []) as Array<Record<string, unknown>>;
     // 账单按 created_at 倒序，首条 daily_grant 即最新发放
     const latest = items.find((item) => item.biz_type === 'daily_grant') as
-      | { points?: unknown; grant_at?: unknown; expire_at?: unknown }
+      | { points?: unknown; created_at?: unknown; grant_at?: unknown; expire_at?: unknown }
       | undefined;
     if (!latest) {
       return {
@@ -144,19 +147,22 @@ export const raccoon: Provider = {
     }
     const grantAt = Date.parse(String(latest.grant_at ?? ''));
     const expireAt = Date.parse(String(latest.expire_at ?? ''));
-    if (!Number.isFinite(grantAt) || !Number.isFinite(expireAt)) {
+    // created_at 带 +08:00 偏移，前 10 位即北京日期；服务端的当日行可能惰性创建，
+    // 「今天有没有发放」只能按这条记录的创建日判定（不看 now 与 grant_at 的时长差）
+    const createdDate = String(latest.created_at ?? '').slice(0, 10);
+    const today = beijingDateKey(ctx.now.getTime());
+    if (!Number.isFinite(grantAt) || !Number.isFinite(expireAt) || !createdDate) {
       return {
         ok: false,
-        message: `发放记录缺少 grant_at/expire_at: ${JSON.stringify(latest).slice(0, 120)}`,
+        message: `发放记录缺少 created_at/grant_at/expire_at: ${JSON.stringify(latest).slice(0, 120)}`,
         detail: { trigger: trigger.data },
         rotatedRefreshToken,
       };
     }
-    const ageMs = ctx.now.getTime() - grantAt;
-    if (ageMs > RECENT_MAX_MS) {
+    if (createdDate !== today) {
       return {
         ok: false,
-        message: `今日未发放：最近一次发放是 ${Math.floor(ageMs / 3600_000)} 小时前（超过 48h）`,
+        message: `今日未发放：最新发放记录创建于 ${createdDate}（不是今天 ${today}）——登录触发性未生效，次日重试`,
         detail: { trigger: trigger.data, latestGrant: latest },
         rotatedRefreshToken,
       };

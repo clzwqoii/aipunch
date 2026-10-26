@@ -4,16 +4,17 @@
 
 ## 当前有效
 
-### 小浣熊接入形态 登录延效型 provider，成功判据是 expire_at 延效档位
+### 小浣熊接入形态 登录延效型 provider，成功判据是当日发放记录的延效档位
 - 状态：生效
-- 决定：小浣熊按「登录触发型（登录延效）」接入（推翻 10-19「无需自动化」）：每日积分 00:00 无条件发放，签到价值在延长有效期——成功判据取最新 `biz_type=daily_grant` 条目的 `expire_at − grant_at` 档位（≥48h 视为延效，实测两档 86399s/604799s），加 48h 新鲜度护栏；纯时长差值判定零时区依赖。执行链 token 直用（与客户端共享会话，401 才 refresh）→ setting_info（桌面头）→ bills 核对。
-- 背景：发放闭眼发，「今日有入账」只证明发放存在不证明延效（8abbd00 旧判据之误）；用户要求接入以每日保住 7 天有效期。
-- 影响：`providers/raccoon.ts`（判据+token 直用+401 重试）、`providers/raccoon.test.ts`（10 测试）、`runners/raccoon-extract.ts`（双变量）、`providers/index.ts`、`config.json`、`.github/workflows/checkin.yml`（RACCOON_* env）、GitHub secrets。
-- 验证：2026-10-24 真实 token 实跑成功（+300 延至 10-30，token 直用 3.1s）；238 测试全绿 + typecheck；无客户端参与的归因实验待验证日观察（全天不碰客户端看 CI 结果）。
+- 决定：小浣熊按「登录触发型（登录延效）」接入（推翻 10-19「无需自动化」）：每日积分 00:00 无条件发放，签到价值在延长有效期。成功判据两条同时成立：①最新 `biz_type=daily_grant` 条目的 **`created_at` 北京日期 = 今天**（证明当日发放记录确实存在，不能拿昨天那条顶替）；②该条 `expire_at − grant_at ≥ 48h`（延效档，实测两档 86399s/604799s）。北京日期用 `+8h 后取 UTC 日期` 计算，无 DST、零时区依赖。执行链 token 直用 → setting_info（桌面头，即登录动作）→ bills 核对；401 才 refresh。
+- 背景：发放闭眼发，「今日有入账」只证明发放存在不证明延效（8abbd00 旧判据之误）；「grant_at 距今 <48h」的新鲜度护栏有假阳性（昨天的延效记录不足 48h，会把昨天谎报成今天），10-26 实测复现后改按 created_at 日期判定。
+- 影响：`providers/raccoon.ts`（判据+token 直用+401 重试）、`providers/raccoon.test.ts`（11 测试，含昨日延效假阳性与 UTC 跨日两例）、`runners/raccoon-extract.ts`（双变量）、`providers/index.ts`、`config.json`、GitHub secrets、CF worker 脚本（选择性部署，不动 secrets）。
+- 验证：2026-10-24 真实 token 实跑成功；239 测试全绿 + typecheck；**2026-10-26 归因实验决定性通过**——当天无人触碰客户端，11:00 CF cron 的 provider 调用独自创建当日发放记录（created_at 11:00:30）并延效至 11-01，证明 token 直用 + setting_info 足以构成登录并延效，无需 refresh 也无需客户端；同日重复调用幂等（15:15 再触发未产生新行）。
 - 历史决定：
   - 2026-10-19 判定「无需自动化」；旧判据「今日账本有正积分入账」只验证发放不验证延效
 - 修订：
-  - 2026-10-24 首次记录
+  - 2026-10-24 首次记录（当时用 48h 新鲜度护栏）
+  - 2026-10-26 护栏改 created_at 北京日期判据（修假阳性）+ 归因实验通过
 
 ### 执行平台现状 已切 cloudflare-workers：调度源 = worker cron，GH workflow 禁用是设计态
 - 状态：生效

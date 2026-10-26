@@ -146,17 +146,37 @@ test('账单中无 daily_grant 记录判失败', async () => {
   assert.match(result.message, /daily_grant|每日发放/);
 });
 
-test('最新发放距今超过 48 小时判失败：今日未发放（不用旧的延效记录谎报成功）', async () => {
-  const stale = {
+test('最新发放是「昨天的延效记录」判失败：今日未发放，不拿昨天的延效谎报今天', async () => {
+  // 真实形态：10-25 延效到 10-31；10-26 11:00 若服务端还没建当日行，最新记录仍是昨天这条
+  const yesterdayExtended = {
     ...grantExtended,
-    created_at: '2026-10-20T10:00:00+08:00',
-    grant_at: '2026-10-20T00:00:00+08:00',
-    expire_at: '2026-10-26T23:59:59+08:00',
+    created_at: '2026-10-25T11:25:31+08:00',
+    grant_at: '2026-10-25T00:00:00+08:00',
+    expire_at: '2026-10-31T23:59:59+08:00',
   };
-  const ctx = ctxWith(mockRaccoon({ settingInfo: () => SETTING_OK(), bills: () => billsPage([stale]) }));
+  const ctx = ctxWith(
+    mockRaccoon({ settingInfo: () => SETTING_OK(), bills: () => billsPage([yesterdayExtended]) }),
+    new Date('2026-10-26T11:00:00+08:00'),
+  );
   const result = await raccoon.checkin(account, ctx);
   assert.equal(result.ok, false);
-  assert.match(result.message, /48|未发放/);
+  assert.match(result.message, /今日未发放|不是今天/);
+});
+
+test('「今天」按北京时间判定：UTC 日期落后一天时当日记录仍算今天', async () => {
+  // CF worker 跑在 UTC：11:00 北京 = 03:00 UTC，UTC 日期同样是 10-26，用 03:30Z 构造跨日风险
+  const todayGrant = {
+    ...grantExtended,
+    created_at: '2026-10-26T09:00:00+08:00',
+    grant_at: '2026-10-26T00:00:00+08:00',
+    expire_at: '2026-11-01T23:59:59+08:00',
+  };
+  const ctx = ctxWith(
+    mockRaccoon({ settingInfo: () => SETTING_OK(), bills: () => billsPage([todayGrant]) }),
+    new Date('2026-10-26T03:30:00Z'),
+  );
+  const result = await raccoon.checkin(account, ctx);
+  assert.equal(result.ok, true);
 });
 
 test('setting_info 返回 code!=0 判失败', async () => {
