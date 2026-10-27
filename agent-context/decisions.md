@@ -4,6 +4,24 @@
 
 ## 当前有效
 
+### AutoClaw 登录奖励靠 user-info 触发 每日必须先打 user-info 再签到
+- 状态：生效
+- 决定：AutoClaw CN（+10000）与国际版（+4000）的「登录奖励」没有领取接口，服务端只在 `POST /userapi/v1/user-info` 时按活跃入账；签到接口、refresh、home-fetch 都不触发。Provider 每日流程固定为：refresh → **user-info（登录动作）** → task-complete（每日签到）→ 读积分流水核对今日活动入账。
+- 背景：2026-10-27 用户发现「一登录就送 10000/4000」而自动化从未拿到；Agent2API 2026-10-15 实测结论一致。
+- 影响：`providers/autoclaw.ts`（triggerLoginActive / queryTodayPromotion，CN 与 Intl 共用 createAutoClawProvider）、`providers/autoclaw.test.ts`。
+- 验证：2026-10-27 CF 实跑消息出现「登录奖励 +10000 已到账」「登录奖励 +4000 已到账」，余额同步上涨（CN 4930→14630、Intl 2400→6800）。
+- 修订：
+  - 2026-10-27 首次记录（含踩坑：流水 `grant_date` 是活动周期键，判今日必须用 `metadata.event_time`）
+
+### 签到余额展示 必须在领取动作之后查询
+- 状态：生效
+- 决定：任何 provider 的「剩余积分」必须在 claim/confirm 完成后再查；领取前查询会稳定少一个当日奖励额。
+- 背景：CodeArts 余额查询原先排在 claim 之前，连续两天报 12682.18，用户实际为 13682。
+- 影响：`providers/codearts.ts`（refreshBalance 在 confirm 后调用）。
+- 验证：2026-10-27 CF 实跑显示 13682.18，与平台一致；新增回归测试断言余额接口被调用两次且取第二次。
+- 修订：
+  - 2026-10-27 首次记录
+
 ### 小浣熊接入形态 登录延效型 provider，成功判据是当日发放记录的延效档位
 - 状态：生效
 - 决定：小浣熊按「登录触发型（登录延效）」接入（推翻 10-19「无需自动化」）：每日积分 00:00 无条件发放，签到价值在延长有效期。成功判据两条同时成立：①最新 `biz_type=daily_grant` 条目的 **`created_at` 北京日期 = 今天**（证明当日发放记录确实存在，不能拿昨天那条顶替）；②该条 `expire_at − grant_at ≥ 48h`（延效档，实测两档 86399s/604799s）。北京日期用 `+8h 后取 UTC 日期` 计算，无 DST、零时区依赖。执行链 token 直用 → setting_info（桌面头，即登录动作）→ bills 核对；401 才 refresh。
