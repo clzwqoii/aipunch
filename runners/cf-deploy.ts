@@ -128,6 +128,9 @@ async function triggerNow(args: DeployArgs): Promise<void> {
   if (!nsId) throw new Error('尚未部署（缺 CF_KV_NAMESPACE）：请先完整部署一次');
   const before = await readKvValue(fetch, args.account, args.token, nsId, 'result');
   const beforeAt = before ? (JSON.parse(before) as { finishedAt?: string }).finishedAt : '';
+  // 上一轮失败的 error 键会一直留着：只有「本轮新写的」错误才算终态，
+  // 否则上次失败的残留会让这次触发直接提前退出（实测踩中）
+  const errorBefore = (await readKvValue(fetch, args.account, args.token, nsId, 'error')) ?? '';
   console.log('[CF] 立即执行：临时 cron 每分钟触发（CF 调度有分钟级延迟，最长等待 8 分钟）');
   await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, ['* * * * *']));
   const deadline = Date.now() + 8 * 60_000;
@@ -145,11 +148,11 @@ async function triggerNow(args: DeployArgs): Promise<void> {
     [result, error] = await Promise.all([read('result'), read('error')]);
     const at = result ? (JSON.parse(result) as { finishedAt?: string }).finishedAt ?? '' : '';
     console.log(`[CF] 等待执行结果（${at && at !== beforeAt ? '有新结果' : at ? '结果未更新' : '暂无'}${error ? ' · 有错误' : ''}）…`);
-    if ((at && at !== beforeAt) || error) break;
+    if ((at && at !== beforeAt) || (error && error !== errorBefore)) break;
   }
   // 恢复每日定时（无论成败都恢复，避免 cron 停在每分钟）
   await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [dailyCron(cronHourFor(args.hour, args.tz))]));
-  if (error) {
+  if (error && error !== errorBefore) {
     const detail = (JSON.parse(error) as { message?: string }).message ?? error;
     throw new Error(`执行失败：${detail.slice(0, 200)}`);
   }
