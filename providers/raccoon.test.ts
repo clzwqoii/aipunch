@@ -239,6 +239,28 @@ test('bills 核对接口失败判定失败', async () => {
   assert.match(result.message, /核对/);
 });
 
+// access-only 是客户端 2026-10-25 后的常态（auth.json 不再保存 refresh_token）：
+// 没有 refreshToken 也必须能跑通，且不发刷新请求
+test('只有 access token（无 refreshToken）时照常签到成功', async () => {
+  let refreshCalled = false;
+  const ctx = ctxWith(
+    mockRaccoon({
+      refresh: () => {
+        refreshCalled = true;
+        return REFRESH_OK();
+      },
+      settingInfo: () => SETTING_OK(),
+      bills: () => billsPage([grantExtended]),
+    }),
+  );
+  const result = await raccoon.checkin(
+    { provider: 'raccoon', name: 'main', token: 'at-only' },
+    ctx,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(refreshCalled, false);
+});
+
 test('缺少凭证判定失败且不发起请求', async () => {
   let called = false;
   const ctx = ctxWith(
