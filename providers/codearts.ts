@@ -201,8 +201,17 @@ export const codearts: Provider = {
 
     const balanceResult = await queryBalance(tokens, ctx);
     const balance = balanceResult.balance;
-    const balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
+    let balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
     const balanceError = balanceResult.error;
+    // 领取后的余额必须重新查：claim 前查到的旧值永远少当天那 1000（用户对账会对不上）
+    let freshBalance = balance;
+    const refreshBalance = async (): Promise<void> => {
+      const after = await queryBalance(tokens, ctx);
+      if (after.balance) {
+        freshBalance = after.balance;
+        balanceSuffix = `；剩余 ${after.balance.remain} 积分`;
+      }
+    };
 
     const deliveryRes = await signedRequest(tokens, 'GET', DELIVERY_PATH, `channel=${OPS_CHANNEL}`, Buffer.from(''), ctx);
     const delivery = await parseJson(deliveryRes);
@@ -240,7 +249,9 @@ export const codearts: Provider = {
     if (campaign.status === 'CLAIMED') {
       // 已领未确认：只补第二步。confirm 失败必须报失败，否则当天封账后再不补确认
       const failure = await confirm();
-      return failure ?? { ok: true, message: `已补确认签到（积分已在 claim 时到账）${balanceSuffix}`, detail: { campaign, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
+      if (failure) return failure;
+      await refreshBalance();
+      return { ok: true, message: `已补确认签到（积分已在 claim 时到账）${balanceSuffix}`, detail: { campaign, balance: freshBalance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'ELIGIBLE' && campaign.claimable === true) {
       const idempotentKey = `claim_${CAMPAIGN_DAILY_CREDIT}_${Date.now()}`;
@@ -265,8 +276,9 @@ export const codearts: Provider = {
       }
       const failure = await confirm();
       if (failure) return failure;
+      await refreshBalance();
       const amount = typeof campaign.benefitAmount === 'number' ? `：+${campaign.benefitAmount} 积分` : '';
-      return { ok: true, message: `签到成功${amount}${balanceSuffix}`, detail: { campaign, claim: claim.data, balance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
+      return { ok: true, message: `签到成功${amount}${balanceSuffix}`, detail: { campaign, claim: claim.data, balance: freshBalance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     return { ok: false, message: '当前不可领取（活动存在但不可领）', detail: { campaign }, rotatedRefreshToken };
   },

@@ -322,3 +322,37 @@ test('签到结果附带剩余积分（余额查询失败不影响签到）', as
     assert.match(result.message, /剩余 900 积分/);
   });
 });
+
+test('签到成功后显示领取后的余额（claim 之后重新查询，不报旧值）', async () => {
+  await withCodeArtsEnv(async () => {
+    let balanceCalls = 0;
+    const ctx = ctxWith(
+      mockCodeArts({
+        token: TOKEN_OK,
+        delivery: DELIVERY_ELIGIBLE,
+        claim: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        confirm: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        // 第一次（领取前）12682.18，第二次（领取后）13682.18 —— 真实场景：+1000 只在 claim 后可见
+        creditStats: () => {
+          balanceCalls += 1;
+          const remain = balanceCalls === 1 ? 12682.18 : 13682.18;
+          return new Response(
+            JSON.stringify({
+              code: 0,
+              data: {
+                metrics: [
+                  { name: 'usageTotalPackageCredit', package_credit_amount: 20000, package_credit_remain: remain },
+                ],
+              },
+            }),
+            { status: 200 },
+          );
+        },
+      }),
+    );
+    const result = await codearts.checkin(account, ctx);
+    assert.equal(result.ok, true);
+    assert.match(result.message, /剩余 13682\.18 积分/, '应显示领取后的余额');
+    assert.equal(balanceCalls, 2, '领取路径应在 claim/confirm 后重新查询余额');
+  });
+});

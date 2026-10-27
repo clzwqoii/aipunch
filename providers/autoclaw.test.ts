@@ -17,12 +17,18 @@ function mockAutoClaw(handlers: {
   refresh?: () => Response;
   wallets?: () => Response;
   taskList?: () => Response;
+  userInfo?: () => Response;
+  ledgers?: () => Response;
   onCall?: (url: string, init?: RequestInit) => void;
 }): typeof fetch {
   return (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     handlers.onCall?.(u, init);
     if (u.includes('/userapi/v1/refresh') || u.includes('/userapi/v1/agent-refresh')) return handlers.refresh!();
+    // 「登录活跃」触发（登录奖励没有领取接口，只有这个钩子）；既有用例默认成功空响应
+    if (u.includes('/userapi/v1/user-info')) return handlers.userInfo?.() ?? new Response('{"code":0}', { status: 200 });
+    // 积分流水：既有用例默认不可读，活动福利降级为无
+    if (u.includes('/ledgers_std')) return handlers.ledgers?.() ?? new Response('{"code":1}', { status: 200 });
     // 状态接口默认不可读，既有用例仍走 claim
     if (u.includes('/autoclaw-task-list')) return handlers.taskList?.() ?? new Response('{}', { status: 500 });
     if (u.includes('/autoclaw-task-complete')) return handlers.checkin!();
@@ -299,4 +305,72 @@ test('任务状态未完成时照常 claim', async () => {
   const result = await autoclaw.checkin(account, ctx);
   assert.equal(result.ok, true);
   assert.ok(calls.some((u) => u.includes('/autoclaw-task-complete')), '未完成时应调 claim');
+});
+
+// AutoClaw 的登录奖励（CN +10000 / Intl +4000）没有领取接口：服务端在
+// POST /userapi/v1/user-info（客户端启动动作）时按活跃入账，
+// 凭积分流水 metadata.event_type=autoclaw_user_active* 确认（Agent2API 实测 2026-10-15）
+// event_time 是入账时刻（epoch 秒）；grant_date 是活动周期键，实测会比入账早一天
+const ledgerWith = (rows: Array<{ amount: number; at: string; eventType?: string; grantDate?: string }>) =>
+  new Response(
+    JSON.stringify({
+      code: 0,
+      data: {
+        entries: rows.map((r) => ({
+          amount: r.amount,
+          description: 'AutoClaw 用户登录奖励',
+          metadata: {
+            event_time: String(Math.floor(Date.parse(r.at) / 1000)),
+            grant_date: r.grantDate ?? '2026-10-26',
+            event_type: r.eventType ?? 'autoclaw_user_active',
+          },
+        })),
+      },
+    }),
+    { status: 200 },
+  );
+
+test('登录奖励：先打 user-info（带 source_id/device_id），今日活动入账计入消息', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const ctx = {
+    now: new Date('2026-10-27T15:40:00+08:00'),
+    fetch: mockAutoClaw({
+      checkin: () => CHECKIN_OK(200),
+      ledgers: () => ledgerWith([{ amount: 10000, at: '2026-10-27T15:39:00+08:00' }]),
+      onCall: (url, init) => calls.push({ url, init }),
+    }),
+  } as RunContext;
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.match(result.message, /登录奖励 \+10000/);
+
+  const userInfo = calls.find((c) => c.url.includes('/userapi/v1/user-info'));
+  assert.ok(userInfo, '应触发 user-info（登录活跃钩子）');
+  assert.equal(userInfo!.init?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(userInfo!.init?.body)), { source_id: 'autoclaw', device_id: '' });
+});
+
+test('流水里昨天的登录奖励不算今天（按北京日期）', async () => {
+  const ctx = {
+    now: new Date('2026-10-27T15:40:00+08:00'),
+    fetch: mockAutoClaw({
+      checkin: () => CHECKIN_OK(200),
+      ledgers: () => ledgerWith([{ amount: 10000, at: '2026-10-26T15:39:00+08:00' }]),
+    }),
+  } as RunContext;
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(result.message, /登录奖励/);
+});
+
+test('user-info 失败不影响签到结论', async () => {
+  const ctx = ctxWith(
+    mockAutoClaw({
+      checkin: () => CHECKIN_OK(200),
+      userInfo: () => new Response('boom', { status: 500 }),
+    }),
+  );
+  const result = await autoclaw.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.match(result.message, /200/);
 });

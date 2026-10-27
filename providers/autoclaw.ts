@@ -70,6 +70,72 @@ export function signedHeaders(token: string, opts: { web?: boolean } = {}): Reco
 // 响应 { code:0, data:{ total_balance, wallets[] } }
 const WALLETS_PATH = '/agent-assetmgr/api/v2/wallets?biz_app_id=autoclaw';
 
+// 登录奖励（CN +10000 / Intl +4000 这类活动福利）**没有领取接口**：
+// 服务端在客户端启动动作 POST /userapi/v1/user-info 时按活跃自动入账
+// （Agent2API 2026-10-15 逐条实测：签到、refresh、home-fetch 都不触发，只有 user-info 会）。
+// 入账后从积分流水确认：只取入账方向，按 metadata.event_type 前缀识别活动入账。
+const USER_INFO_PATH = '/userapi/v1/user-info';
+const LEDGERS_PATH =
+  '/agent-assetmgr/api/v1/ledgers_std?asset_type=point&wallet_type=all&cursor=&page_size=50&flow_direction=income';
+const PROMOTION_EVENT_PREFIXES = ['autoclaw_user_active', 'autoclaw_user_signup_day'];
+const PROMOTION_ACTIVITY_PREFIXES = [
+  'autoclaw_user_active_reward',
+  'autoclaw_user_active_bonus',
+  'autoclaw_new_user_day_1_to_7_bonus',
+];
+
+// 北京自然日（流水 grant_date 即北京日期；北京无 DST，+8h 取 UTC 日期）
+function beijingDateKey(ms: number): string {
+  return new Date(ms + 8 * 3600_000).toISOString().slice(0, 10);
+}
+
+// 触发「登录活跃」：失败不影响签到（活动福利是附加收益，不能升级成签到失败）
+async function triggerLoginActive(token: string, base: string, deviceId: string, ctx: RunContext): Promise<boolean> {
+  try {
+    const res = await ctx.fetch(`${base}${USER_INFO_PATH}`, {
+      method: 'POST',
+      headers: signedHeaders(token),
+      body: JSON.stringify({ source_id: 'autoclaw', device_id: deviceId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// 今日活动福利合计（登录奖励等）；查不到返回 null，不计入结论
+async function queryTodayPromotion(token: string, base: string, ctx: RunContext): Promise<number | null> {
+  try {
+    const res = await ctx.fetch(`${base}${LEDGERS_PATH}`, { headers: signedHeaders(token) });
+    if (!res.ok) return null;
+    const { data } = await parseJson(res);
+    const entries = (data?.data as { entries?: unknown } | undefined)?.entries;
+    if (!Array.isArray(entries)) return null;
+    const today = beijingDateKey(ctx.now.getTime());
+    const total = entries.reduce((sum, entry) => {
+      const e = entry as { amount?: unknown; metadata?: Record<string, unknown> };
+      const meta = e.metadata ?? {};
+      // event_time 才是入账时刻（epoch 秒）；grant_date 是活动周期键，会比实际入账早一天
+      const eventMs = Number(meta.event_time) * 1000;
+      const entryDate =
+        Number.isFinite(eventMs) && eventMs > 0
+          ? beijingDateKey(eventMs)
+          : String(meta.grant_date ?? '');
+      if (entryDate !== today) return sum;
+      const eventType = String(meta.event_type ?? '');
+      const activityId = String(meta.activity_id ?? '');
+      const hit =
+        PROMOTION_EVENT_PREFIXES.some((p) => eventType.startsWith(p)) ||
+        PROMOTION_ACTIVITY_PREFIXES.some((p) => activityId.startsWith(p));
+      const amount = Number(e.amount);
+      return hit && Number.isFinite(amount) ? sum + amount : sum;
+    }, 0);
+    return total > 0 ? total : null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseAutoclawBalance(body: unknown): { remain: number } | null {
   const root = (body ?? {}) as { code?: unknown; data?: Record<string, unknown> };
   if (root.code !== undefined && Number(root.code) !== 0) return null;
@@ -226,6 +292,27 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
       return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
     }
 
+    // 先「登录」再签到：登录奖励只在 user-info 上入账，签到接口不会触发它
+    const deviceId = account.refreshToken ? deviceIdOf(account.refreshToken) : '';
+    await triggerLoginActive(accessToken, baseUrl(), deviceId, ctx);
+
+    // 成功结论统一走这里：附带今日活动福利（登录奖励）到账合计
+    const finish = async (
+      message: string,
+      skipped?: boolean,
+      detail?: Record<string, unknown>,
+    ): Promise<CheckinResult> => {
+      const promotion = await queryTodayPromotion(accessToken, baseUrl(), ctx);
+      const suffix = promotion ? `（登录奖励 +${promotion} 已到账）` : '';
+      return {
+        ok: true,
+        message: `${message}${suffix}`,
+        skipped,
+        detail: { ...detail, promotion },
+        rotatedRefreshToken,
+      };
+    };
+
     const balanceResult = await queryBalance(accessToken, baseUrl(), ctx);
     const balance = balanceResult.balance;
     const balanceSuffix = balance ? `；剩余 ${balance.remain} 积分` : '';
@@ -233,13 +320,11 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
     // 先查任务状态：已完成就不发 claim（避免重复请求与风控噪声）
     const signinStatus = await querySigninStatus(accessToken, baseUrl(), ctx);
     if (signinStatus?.status === 'completed') {
-      return {
-        ok: true,
-        message: `今日已签到（状态确认）${balanceSuffix}`,
-        skipped: true,
-        detail: { status: 'completed', signinStatus, balance, balanceError: balanceResult.error, rotatedRefreshToken },
-        rotatedRefreshToken,
-      };
+      return finish(
+        `今日已签到（状态确认）${balanceSuffix}`,
+        true,
+        { status: 'completed', signinStatus, balance, balanceError: balanceResult.error },
+      );
     }
 
     const res = await ctx.fetch(`${baseUrl()}/autoclaw-proxy/proxy/autoclaw-task-complete`, {
@@ -270,21 +355,19 @@ function createAutoClawProvider(id: string, name: string, baseUrl: () => string)
     const alreadyCompleted = payload.already_completed === true;
     const rewardPoints = typeof payload.reward_points === 'number' ? payload.reward_points : 0;
     if (alreadyCompleted || rewardPoints === 0) {
-      return {
-        ok: true,
-        message: `${alreadyCompleted ? '今日已签到（服务端幂等跳过）' : '签到成功（本次无积分奖励）'}${balanceSuffix}`,
+      return finish(
+        `${alreadyCompleted ? '今日已签到（服务端幂等跳过）' : '签到成功（本次无积分奖励）'}${balanceSuffix}`,
         // 真签到但无奖励不是幂等跳过，不标 skipped
-        skipped: alreadyCompleted || undefined,
-        detail: { status: res.status, body: data, balance, balanceError: balanceResult.error, rotatedRefreshToken },
-        rotatedRefreshToken,
-      };
+        alreadyCompleted || undefined,
+        { status: res.status, body: data, balance, balanceError: balanceResult.error },
+      );
     }
-    return {
-      ok: true,
-      message: `签到成功：+${rewardPoints} 积分${balanceSuffix}`,
-      detail: { status: res.status, body: data, balance, balanceError: balanceResult.error, rotatedRefreshToken },
-      rotatedRefreshToken,
-    };
+    return finish(`签到成功：+${rewardPoints} 积分${balanceSuffix}`, undefined, {
+      status: res.status,
+      body: data,
+      balance,
+      balanceError: balanceResult.error,
+    });
     },
   };
 }
