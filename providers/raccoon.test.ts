@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { raccoon } from './raccoon.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
+// 测试不等待真实重查延迟
+process.env.RACCOON_RECHECK_DELAY_MS = '0';
+
 const account: Account = {
   provider: 'raccoon',
   name: 'main',
@@ -272,4 +275,33 @@ test('缺少凭证判定失败且不发起请求', async () => {
   const result = await raccoon.checkin({ provider: 'raccoon', name: 'main', token: '' }, ctx);
   assert.equal(result.ok, false);
   assert.equal(called, false);
+});
+
+test('当日发放记录落库有延迟：首次未见今天时重查一次账单', async () => {
+  const yesterdayExtended = {
+    ...grantExtended,
+    created_at: '2026-10-25T11:25:31+08:00',
+    grant_at: '2026-10-25T00:00:00+08:00',
+    expire_at: '2026-10-31T23:59:59+08:00',
+  };
+  const todayGrant = {
+    ...grantExtended,
+    created_at: '2026-10-26T11:01:05+08:00',
+    grant_at: '2026-10-26T00:00:00+08:00',
+    expire_at: '2026-11-01T23:59:59+08:00',
+  };
+  let billsCalls = 0;
+  const ctx = ctxWith(
+    mockRaccoon({
+      settingInfo: () => SETTING_OK(),
+      bills: () => {
+        billsCalls++;
+        return billsPage([billsCalls === 1 ? yesterdayExtended : todayGrant]);
+      },
+    }),
+    new Date('2026-10-26T11:00:00+08:00'),
+  );
+  const result = await raccoon.checkin(account, ctx);
+  assert.equal(result.ok, true);
+  assert.equal(billsCalls, 2, '第一次未见当日记录时应重查一次');
 });

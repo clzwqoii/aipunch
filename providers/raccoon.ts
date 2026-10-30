@@ -120,23 +120,50 @@ export const raccoon: Provider = {
     }
 
     // 第二步：bills 核对最新 daily_grant 的延效档位（成功判据是有效期被延长，不是有入账）
-    const billsRes = await ctx.fetch(BILLS_URL, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
-    });
-    const bills = await parseJson(billsRes);
-    if (!bills.data || bills.data.code !== 0) {
+    const readBills = async (): Promise<{
+      latest: { points?: unknown; created_at?: unknown; grant_at?: unknown; expire_at?: unknown } | undefined;
+      status: number;
+      message?: unknown;
+      text: string;
+      failed: boolean;
+    }> => {
+      const res = await ctx.fetch(BILLS_URL, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+      });
+      const parsed = await parseJson(res);
+      const items = (parsed.data?.data?.items ?? []) as Array<Record<string, unknown>>;
+      return {
+        // 账单按 created_at 倒序，首条 daily_grant 即最新发放
+        latest: items.find((item) => item.biz_type === 'daily_grant') as
+          | { points?: unknown; created_at?: unknown; grant_at?: unknown; expire_at?: unknown }
+          | undefined,
+        status: res.status,
+        message: parsed.data?.message,
+        text: parsed.text,
+        failed: !parsed.data || parsed.data.code !== 0,
+      };
+    };
+    let bills = await readBills();
+    if (bills.failed) {
       return {
         ok: false,
-        message: `账本核对失败: HTTP ${billsRes.status} ${String(bills.data?.message ?? bills.text).slice(0, 100)}`,
+        message: `账本核对失败: HTTP ${bills.status} ${String(bills.message ?? bills.text).slice(0, 100)}`,
         detail: { trigger: trigger.data },
         rotatedRefreshToken,
       };
     }
-    const items = (bills.data.data?.items ?? []) as Array<Record<string, unknown>>;
-    // 账单按 created_at 倒序，首条 daily_grant 即最新发放
-    const latest = items.find((item) => item.biz_type === 'daily_grant') as
-      | { points?: unknown; created_at?: unknown; grant_at?: unknown; expire_at?: unknown }
-      | undefined;
+    const today = beijingDateKey(ctx.now.getTime());
+    const createdDateOf = (g: typeof bills.latest): string => String(g?.created_at ?? '').slice(0, 10);
+    // 服务端在 setting_info 之后才异步建当日发放行：首次看不到今天则等一会儿重查一次
+    if (!bills.latest || createdDateOf(bills.latest) !== today) {
+      const delay = Number(process.env.RACCOON_RECHECK_DELAY_MS ?? 2000);
+      if (Number.isFinite(delay) && delay >= 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        const again = await readBills();
+        if (!again.failed) bills = again;
+      }
+    }
+    const latest = bills.latest;
     if (!latest) {
       return {
         ok: false,
@@ -149,8 +176,7 @@ export const raccoon: Provider = {
     const expireAt = Date.parse(String(latest.expire_at ?? ''));
     // created_at 带 +08:00 偏移，前 10 位即北京日期；服务端的当日行可能惰性创建，
     // 「今天有没有发放」只能按这条记录的创建日判定（不看 now 与 grant_at 的时长差）
-    const createdDate = String(latest.created_at ?? '').slice(0, 10);
-    const today = beijingDateKey(ctx.now.getTime());
+    const createdDate = createdDateOf(latest);
     if (!Number.isFinite(grantAt) || !Number.isFinite(expireAt) || !createdDate) {
       return {
         ok: false,
