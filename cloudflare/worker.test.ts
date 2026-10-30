@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RunResult } from '../core/types.ts';
-import { kvResultEntry, secretsView } from './worker.ts';
+import { kvResultEntry, pushRunHistory, secretsView } from './worker.ts';
 
 function fakeRun(overrides: Partial<RunResult> = {}): RunResult {
   return {
@@ -40,4 +40,17 @@ test('secretsView 只取字符串值的绑定（剥离 KV namespace 等非 Secre
     AIPUNCH_KV: { get: async () => null, put: async () => {} },
   } as unknown as Record<string, unknown>;
   assert.deepEqual(secretsView(env), { TRAE_REFRESH_TOKEN: 'tok', CF_ACCOUNT_ID: 'acct' });
+});
+
+test('pushRunHistory 去重、按新到旧、限制条数', () => {
+  const entry = (id: number) => ({ runId: id, total: 1, succeeded: 1 });
+  const prev = [entry(3), entry(2), entry(1)];
+  assert.deepEqual(pushRunHistory(JSON.stringify(prev), entry(4)), [entry(4), entry(3), entry(2), entry(1)]);
+  // 同 runId 覆盖而不是重复
+  assert.deepEqual(pushRunHistory(JSON.stringify(prev), entry(3)), [entry(3), entry(2), entry(1)]);
+  // 超限截断
+  const many = Array.from({ length: 5 }, (_, i) => entry(i + 1));
+  assert.equal(pushRunHistory(JSON.stringify(many), entry(9), 3).length, 3);
+  // 损坏历史按空处理
+  assert.deepEqual(pushRunHistory('not-json', entry(1)), [entry(1)]);
 });

@@ -41,6 +41,15 @@ export function isSynced(history: Array<{ runId?: number }>, runId: number): boo
   return history.some((h) => h.runId === runId);
 }
 
+// 云端 runs 与本地历史合并：runId 去重（云端覆盖本地同 id）、新到旧、保留 50 条
+export function mergeHistory<T extends { runId?: number }>(remote: T[], local: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const entry of [...local, ...remote]) {
+    if (entry && typeof entry.runId === 'number') map.set(entry.runId, entry);
+  }
+  return [...map.values()].sort((a, b) => (b.runId ?? 0) - (a.runId ?? 0)).slice(0, 50);
+}
+
 // 执行平台来自 config.json（与桌面端「云端 CI」单选一致）；缺省视为 github-actions（向后兼容）
 export function platformFromConfig(cwd: string = process.cwd()): string {
   try {
@@ -105,13 +114,31 @@ async function mainKv(): Promise<void> {
   const cwd = process.env.AIPUNCH_WORK_DIR ?? process.cwd();
   const prev = readJson<ResultFile | null>(join(cwd, '.aipunch-last-run.json'), null);
   const history = readJson<ResultFile[]>(join(cwd, '.aipunch-runs.json'), []);
+  // 云端历史（worker 每次追加，保留 30 条）：即使 result 已同步过，也能补回其它日期的记录
+  const runsRaw = await readKvValue(fetch, accountId, token, nsId, 'runs').catch(() => null);
+  const remoteRuns = (() => {
+    if (!runsRaw) return [] as ResultFile[];
+    try {
+      const parsed = JSON.parse(runsRaw) as unknown;
+      return Array.isArray(parsed) ? (parsed as ResultFile[]) : [];
+    } catch {
+      return [] as ResultFile[];
+    }
+  })();
+  const mergedHistory = remoteRuns.length > 0 ? mergeHistory(remoteRuns, history) : history;
+
   const plan = planKvSync(raw, prev, history);
   if (plan.skip) {
-    console.log(`[SYNC] ${plan.reason}`);
+    if (mergedHistory !== history) {
+      writeFileSync(join(cwd, '.aipunch-runs.json'), JSON.stringify(mergedHistory, null, 1));
+      console.log(`[SYNC] ${plan.reason}；已合并云端历史 ${remoteRuns.length} 条`);
+    } else {
+      console.log(`[SYNC] ${plan.reason}`);
+    }
     return;
   }
   writeFileSync(join(cwd, '.aipunch-last-run.json'), JSON.stringify(mergeRunResults(prev, plan.entry, true), null, 1));
-  writeFileSync(join(cwd, '.aipunch-runs.json'), JSON.stringify([plan.entry, ...history].slice(0, 50), null, 1));
+  writeFileSync(join(cwd, '.aipunch-runs.json'), JSON.stringify(mergeHistory([plan.entry], mergedHistory), null, 1));
   console.log(`[SYNC] 已同步 CF 运行 #${plan.entry.runId ?? '?'}：${plan.entry.succeeded}/${plan.entry.total} 成功`);
 }
 

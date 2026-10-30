@@ -32,6 +32,22 @@ export function secretsView(env: Record<string, unknown>): Record<string, string
   return Object.fromEntries(Object.entries(env).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
 }
 
+export const RUNS_KEY = 'runs';
+export const RUNS_LIMIT = 30;
+
+// KV 历史：新到旧、同 runId 覆盖、限 30 条（KV 值有大小上限，只保留结构化摘要）
+export function pushRunHistory(prevRaw: string | null, entry: { runId?: number }, limit = RUNS_LIMIT): unknown[] {
+  let prev: unknown[] = [];
+  try {
+    const parsed = prevRaw ? JSON.parse(prevRaw) : [];
+    if (Array.isArray(parsed)) prev = parsed.filter((x) => x && typeof x === 'object');
+  } catch {
+    prev = [];
+  }
+  const rest = prev.filter((x) => (x as { runId?: number }).runId !== entry.runId);
+  return [entry, ...rest].slice(0, limit);
+}
+
 // KV result 条目：结构化结果 + 时间戳 runId（ci-sync 按 finishedAt 判新、runId 防重）
 export function kvResultEntry(result: RunResult, now: Date) {
   return { ...toResultFile(result), runId: now.getTime(), finishedAt: now.toISOString() };
@@ -56,7 +72,12 @@ async function runScheduled(env: Env): Promise<void> {
   const config = JSON.parse(raw) as ConfigFile;
   const accounts = resolveAccounts(config, secretsView(env));
   const result = await runCheckins(accounts, { now: new Date(), fetch: fetchWithTimeout(30_000) });
-  await env.AIPUNCH_KV.put('result', JSON.stringify(kvResultEntry(result, new Date())));
+  const entry = kvResultEntry(result, new Date());
+  await env.AIPUNCH_KV.put('result', JSON.stringify(entry));
+  // 历史留着可回溯（KV 的 result 只存最新一条）；写失败不影响本次签到
+  await env.AIPUNCH_KV.get(RUNS_KEY)
+    .then((prev) => env.AIPUNCH_KV.put(RUNS_KEY, JSON.stringify(pushRunHistory(prev, entry))))
+    .catch(() => {});
   // 轮换票只进 Secrets 不进 KV；单条失败不中断（下轮用旧票会失败并重试轮换）
   if (env.CF_ACCOUNT_ID && env.CF_API_TOKEN) {
     for (const notice of rotationNotices(result)) {

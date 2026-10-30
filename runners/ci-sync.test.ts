@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isSynced, pickLatestCompleted, planKvSync, platformFromConfig, shouldSync } from './ci-sync.ts';
+import { isSynced, mergeHistory, pickLatestCompleted, planKvSync, platformFromConfig, shouldSync } from './ci-sync.ts';
 import type { ResultFile } from '../core/result.ts';
 
 function kvEntry(overrides: Partial<ResultFile> = {}): ResultFile {
@@ -73,4 +73,12 @@ test('isSynced 按 runId 判断该运行是否已拉取过（防重复追加历�
   assert.equal(isSynced([], 12), false);
   // 旧格式历史条目无 runId：视为未同步，重新拉一次幂等合并无害
   assert.equal(isSynced([{}], 12), false);
+});
+
+test('mergeHistory 合并云端与本地历史：runId 去重、新到旧、上限 50', () => {
+  const entry = (id: number) => ({ runId: id, total: 1, succeeded: 1 }) as never;
+  const merged = mergeHistory([entry(3), entry(2)], [entry(2), entry(1)]);
+  assert.deepEqual(merged.map((e) => (e as { runId: number }).runId), [3, 2, 1]);
+  const many = Array.from({ length: 60 }, (_, i) => entry(i + 1));
+  assert.equal(mergeHistory(many, []).length, 50);
 });
