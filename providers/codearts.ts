@@ -133,6 +133,7 @@ function signedRequest(
 
 interface Campaign {
   campaignId: number;
+  type?: string;
   status: string;
   claimable?: boolean;
   benefitAmount?: number;
@@ -140,11 +141,17 @@ interface Campaign {
   endTime?: string;
 }
 
-function findCampaign(data: JsonBody | null): Campaign | null {
+// 活动 id 会变（2026-10-30 实测已从 1 变为 34）：优先旧 id，其次按 type=USER_LOGIN，最后按标题
+export function findCampaign(data: JsonBody | null): Campaign | null {
   const items = (data?.data?.items ?? []) as unknown[];
   if (!Array.isArray(items)) return null;
-  const found = items.find((item) => (item as Campaign)?.campaignId === CAMPAIGN_DAILY_CREDIT);
-  return (found as Campaign) ?? null;
+  const campaigns = items.filter((item) => item && typeof item === 'object') as Campaign[];
+  return (
+    campaigns.find((c) => c.campaignId === CAMPAIGN_DAILY_CREDIT) ??
+    campaigns.find((c) => c.type === 'USER_LOGIN') ??
+    campaigns.find((c) => /每日.*签到/.test(String(c.title ?? ''))) ??
+    null
+  );
 }
 
 function num(value: unknown): number {
@@ -235,7 +242,7 @@ export const codearts: Provider = {
     }
 
     const confirm = async (): Promise<CheckinResult | null> => {
-      const res = await signedRequest(tokens, 'POST', CONFIRM_PATH, '', Buffer.from(JSON.stringify({ campaignId: CAMPAIGN_DAILY_CREDIT })), ctx);
+      const res = await signedRequest(tokens, 'POST', CONFIRM_PATH, '', Buffer.from(JSON.stringify({ campaignId: campaign.campaignId })), ctx);
       const body = await parseJson(res);
       if (!body.data || body.data.code !== 0) {
         return { ok: false, message: `签到确认失败: code=${body.data?.code ?? res.status}`, detail: { confirm: body.data }, rotatedRefreshToken };
@@ -254,13 +261,13 @@ export const codearts: Provider = {
       return { ok: true, message: `已补确认签到（积分已在 claim 时到账）${balanceSuffix}`, detail: { campaign, balance: freshBalance, balanceError, rotatedRefreshToken }, rotatedRefreshToken };
     }
     if (campaign.status === 'ELIGIBLE' && campaign.claimable === true) {
-      const idempotentKey = `claim_${CAMPAIGN_DAILY_CREDIT}_${Date.now()}`;
+      const idempotentKey = `claim_${campaign.campaignId}_${Date.now()}`;
       const claimRes = await signedRequest(
         tokens,
         'POST',
         CLAIM_PATH,
         '',
-        Buffer.from(JSON.stringify({ campaignId: CAMPAIGN_DAILY_CREDIT, idempotentKey, channel: OPS_CHANNEL })),
+        Buffer.from(JSON.stringify({ campaignId: campaign.campaignId, idempotentKey, channel: OPS_CHANNEL })),
         ctx,
       );
       const claim = await parseJson(claimRes);

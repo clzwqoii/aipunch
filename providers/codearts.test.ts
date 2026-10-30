@@ -356,3 +356,37 @@ test('签到成功后显示领取后的余额（claim 之后重新查询，不�
     assert.equal(balanceCalls, 2, '领取路径应在 claim/confirm 后重新查询余额');
   });
 });
+
+test('每日签到活动 id 变化（如 34）时按 type=USER_LOGIN 匹配并领取', async () => {
+  await withCodeArtsEnv(async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const ctx = ctxWith(
+      mockCodeArts({
+        token: TOKEN_OK,
+        delivery: () =>
+          new Response(
+            JSON.stringify({
+              code: 0,
+              data: {
+                items: [
+                  { campaignId: 34, title: '每日签到领100积分', type: 'USER_LOGIN', benefitAmount: 100, status: 'ELIGIBLE', claimable: true },
+                  { campaignId: 4, title: '新用户注册送 4000 积分', type: 'NEW_USER_REGISTER', status: 'CLAIMED' },
+                ],
+              },
+            }),
+            { status: 200 },
+          ),
+        claim: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        confirm: () => new Response(JSON.stringify({ code: 0 }), { status: 200 }),
+        onCall: (url, init) => calls.push({ url, init }),
+      }),
+    );
+    const result = await codearts.checkin(account, ctx);
+    assert.equal(result.ok, true);
+    assert.match(result.message, /\+100 积分/);
+    const claim = calls.find((c) => c.url.includes('/v1/ops/claim'));
+    assert.deepEqual(JSON.parse(String(claim!.init?.body)).campaignId, 34);
+    const confirm = calls.find((c) => c.url.includes('/v1/ops/confirm'));
+    assert.deepEqual(JSON.parse(String(confirm!.init?.body)).campaignId, 34);
+  });
+});
