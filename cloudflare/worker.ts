@@ -66,6 +66,29 @@ async function putSecret(env: Env, name: string, value: string): Promise<void> {
   if (!res.ok) throw new Error(`回写 Secret ${name} 失败: HTTP ${res.status}`);
 }
 
+// 轮换票回写：瞬时错误重试一次；仍失败必须返回失败说明，由调用方暴露（一次性票作废后没人知道就会永久断链）
+export async function persistRotations(
+  env: Env,
+  result: RunResult,
+  put: (env: Env, name: string, value: string) => Promise<void> = putSecret,
+): Promise<string[]> {
+  const failures: string[] = [];
+  for (const notice of rotationNotices(result)) {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await put(env, notice.name, notice.token);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err as Error;
+      }
+    }
+    if (lastError) failures.push(`${notice.name}: ${lastError.message}`);
+  }
+  return failures;
+}
+
 async function runScheduled(env: Env): Promise<void> {
   const raw = await env.AIPUNCH_KV.get('config');
   if (!raw) throw new Error('KV 缺少 config：请经桌面端部署写入');
@@ -80,10 +103,10 @@ async function runScheduled(env: Env): Promise<void> {
     .catch(() => {});
   // 轮换票只进 Secrets 不进 KV；单条失败不中断（下轮用旧票会失败并重试轮换）
   if (env.CF_ACCOUNT_ID && env.CF_API_TOKEN) {
-    for (const notice of rotationNotices(result)) {
-      await putSecret(env, notice.name, notice.token).catch((err: unknown) => {
-        console.log(`[ROTATE] ${(err as Error).message}`);
-      });
+    const failures = await persistRotations(env, result);
+    // 失败不能静默：旧票已作废，下一轮必失败；抛错让 error 落 KV 并在面板显示失败
+    if (failures.length > 0) {
+      throw new Error(`轮换票回写失败（${failures.join('; ')}）——下一轮将使用已作废的旧票，请重新导入凭证`);
     }
   }
   if (result.succeeded < result.total) {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RunResult } from '../core/types.ts';
-import { kvResultEntry, pushRunHistory, secretsView } from './worker.ts';
+import { kvResultEntry, persistRotations, pushRunHistory, secretsView } from './worker.ts';
 
 function fakeRun(overrides: Partial<RunResult> = {}): RunResult {
   return {
@@ -40,6 +40,40 @@ test('secretsView 只取字符串值的绑定（剥离 KV namespace 等非 Secre
     AIPUNCH_KV: { get: async () => null, put: async () => {} },
   } as unknown as Record<string, unknown>;
   assert.deepEqual(secretsView(env), { TRAE_REFRESH_TOKEN: 'tok', CF_ACCOUNT_ID: 'acct' });
+});
+
+function rotatedRun(): RunResult {
+  return fakeRun({
+    results: [
+      {
+        account: 'main',
+        provider: 'codearts',
+        ok: true,
+        message: '签到成功',
+        durationMs: 300,
+        refreshTokenEnv: 'CODEARTS_REFRESH_TOKEN',
+        rotatedRefreshToken: 'rt-new',
+      },
+    ],
+  });
+}
+
+test('轮换票回写瞬时失败会重试一次，成功则不算失败', async () => {
+  let attempts = 0;
+  const failures = await persistRotations({} as never, rotatedRun(), async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('HTTP 429');
+  });
+  assert.deepEqual(failures, []);
+  assert.equal(attempts, 2);
+});
+
+test('轮换票回写持续失败必须透出失败项，不能静默', async () => {
+  const failures = await persistRotations({} as never, rotatedRun(), async () => {
+    throw new Error('HTTP 500');
+  });
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /CODEARTS_REFRESH_TOKEN.*HTTP 500/);
 });
 
 test('pushRunHistory 去重、按新到旧、限制条数', () => {
