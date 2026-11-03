@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { t, getCurrentLang, setLanguage, Lang, translations } from "./i18n";
 import { escapeHtml } from "./html";
+import { retryAsync } from "./retry";
 
 const appWindow = getCurrentWindow();
 
@@ -1602,7 +1603,8 @@ function setupUpdaterControls() {
     }
 
     try {
-      const update = await check();
+      // GitHub 资产域名经系统代理偶发 TLS 重置/超时：自动重试两次再报错
+      const update = await retryAsync(() => check());
       if (update && update.available) {
         pendingUpdate = update;
         if (btnText) btnText.textContent = t("updateInstall", { version: update.version });
@@ -1630,7 +1632,10 @@ function setupUpdaterControls() {
     } catch (err) {
       console.warn("Update check failed:", err);
       if (manual) {
-        const reason = String((err as Error).message || err).slice(0, 120);
+        const raw = String((err as Error).message || err);
+        const reason = /error sending request|timed out|network|connect|dns/i.test(raw)
+          ? t("updateNetworkError")
+          : raw.slice(0, 120);
         if (btnText) btnText.textContent = t("checkUpdate");
         if (statusMsg) {
           statusMsg.className = "update-status-msg error";

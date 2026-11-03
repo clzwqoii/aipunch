@@ -200,6 +200,7 @@ export const translations = {
     updateDownloading: "下载中 {percent}%",
     updateReady: "就绪，点击重启",
     updateFailed: "检查失败",
+    updateNetworkError: "网络波动，请稍后重试",
   },
   en: {
     brandSub: "Automated Check-in Hub",
@@ -395,6 +396,7 @@ export const translations = {
     updateDownloading: "Downloading {percent}%",
     updateReady: "Ready, restart",
     updateFailed: "Check failed",
+    updateNetworkError: "Network hiccup. Please try again.",
   },
 };
 
