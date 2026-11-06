@@ -42,6 +42,12 @@ const PROVIDER_METAS: Record<
     brandChar: "Q",
     hintKey: "qoderHint",
   },
+  "qoder-intl": {
+    name: "Qoder 国际版",
+    iconBg: "linear-gradient(135deg, #7928ca 0%, #ff0080 100%)",
+    brandChar: "Q",
+    hintKey: "qoderIntlHint",
+  },
   codearts: {
     name: "CodeArts",
     iconBg: "linear-gradient(135deg, #c7000b 0%, #ff6b6b 100%)",
@@ -92,6 +98,8 @@ const CREDENTIAL_RUNNERS = new Set([
   "trae-login",
   "codearts-login",
   "qoder-login",
+  "qoder-intl-login",
+  "qoder-umid",
   "autoclaw-login",
   "autoclaw-intl-login",
   "login",
@@ -103,6 +111,8 @@ const CREDENTIAL_LABELS: Record<string, string> = {
   "trae-login": "Trae 浏览器授权",
   "codearts-login": "CodeArts OAuth 授权",
   "qoder-login": "Qoder PAT 兑换",
+  "qoder-intl-login": "Qoder 国际版 PAT 兑换",
+  "qoder-umid": "Qoder 国际版设备身份生成",
   "autoclaw-login": "AutoClaw 国内版登录",
   "autoclaw-intl-login": "AutoClaw 国际版授权",
   login: "凭证登录",
@@ -535,6 +545,7 @@ function applyBalances(): void {
 
 const CRED_BRAND_PROVIDER: Record<string, string> = {
   qoder: "qoder",
+  "qoder-intl": "qoder-intl",
   trae: "trae",
   codearts: "codearts",
   autoclaw: "autoclaw-intl",
@@ -546,6 +557,7 @@ const CRED_BRAND_PROVIDER: Record<string, string> = {
 // 各导入卡对应的凭证键：凭证写入 .env 即视为「已导入」，不依赖账号接入与运行结果
 const CRED_BRAND_ENV_KEYS: Record<string, string[]> = {
   qoder: ["QODER_REFRESH_TOKEN"],
+  "qoder-intl": ["QODER_INTL_REFRESH_TOKEN"],
   trae: ["TRAE_REFRESH_TOKEN"],
   codearts: ["CODEARTS_REFRESH_TOKEN"],
   autoclaw: ["AUTOCLAW_INTL_REFRESH_TOKEN"],
@@ -560,6 +572,7 @@ const RUNNER_ACCOUNTS: Record<string, { provider: string; tokenEnv?: string; ref
   "trae-extract": { provider: "trae", refreshTokenEnv: "TRAE_REFRESH_TOKEN" },
   "codearts-login": { provider: "codearts", refreshTokenEnv: "CODEARTS_REFRESH_TOKEN" },
   "qoder-login": { provider: "qoder", refreshTokenEnv: "QODER_REFRESH_TOKEN" },
+  "qoder-intl-login": { provider: "qoder-intl", refreshTokenEnv: "QODER_INTL_REFRESH_TOKEN" },
   "autoclaw-login": { provider: "autoclaw", refreshTokenEnv: "AUTOCLAW_REFRESH_TOKEN" },
   "autoclaw-intl-login": { provider: "autoclaw-intl", refreshTokenEnv: "AUTOCLAW_INTL_REFRESH_TOKEN" },
   login: { provider: "workbuddy", refreshTokenEnv: "WORKBUDDY_REFRESH_TOKEN" },
@@ -584,6 +597,7 @@ async function ensureCredentialAccount(scriptName: string): Promise<void> {
 // 手动粘贴 Token 的 provider → 对应导入 runner（复用同一套账号自动登记）
 const CRED_RUNNER_BY_PROVIDER: Record<string, string> = {
   qoder: "qoder-login",
+  "qoder-intl": "qoder-intl-login",
   "autoclaw-intl": "autoclaw-intl-login",
   workbuddy: "login",
   "autoclaw-cn": "autoclaw-login",
@@ -1203,6 +1217,7 @@ async function loadPrivacyMode() {
 // 9. 凭据向导绑定与执行
 function setupCredentialButtons() {
   document.getElementById("btn-import-qoder")?.addEventListener("click", () => openAuthModal("qoder"));
+  document.getElementById("btn-import-qoder-intl")?.addEventListener("click", () => openAuthModal("qoder-intl"));
   document.getElementById("btn-import-trae")?.addEventListener("click", () => startRunner("trae-extract", []));
   document.getElementById("btn-import-codearts")?.addEventListener("click", () => startRunner("codearts-login", []));
   document.getElementById("btn-import-autoclaw")?.addEventListener("click", () => openAuthModal("autoclaw-intl"));
@@ -1227,6 +1242,12 @@ const AUTH_DETAILS: Record<string, ProviderAuthMeta> = {
     webUrl: "https://qoder.cn",
     localApp: "Qoder",
     envKey: "QODER_REFRESH_TOKEN",
+  },
+  "qoder-intl": {
+    name: "Qoder 国际版",
+    webUrl: "https://qoder.com/account/integrations",
+    localApp: "Qoder",
+    envKey: "QODER_INTL_REFRESH_TOKEN",
   },
   trae: {
     name: "Trae",
@@ -1431,6 +1452,22 @@ function getProviderSpecificWizardHtml(provider: string): string {
         </div>
       </div>
     `;
+  } else if (provider === "qoder-intl") {
+    return `
+      <div class="auth-option-card">
+        <div class="auth-option-header">
+          <span>${t("wizardQoderIntlTitle")}</span>
+        </div>
+        <p class="auth-option-desc">${t("wizardQoderIntlDesc")}</p>
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+          <input type="text" id="input-qoder-intl-pat" class="form-input" placeholder="${t("wizardQoderPlaceholder")}" />
+          <button id="btn-exchange-intl-pat" class="btn-primary" style="white-space: nowrap;">${t("wizardQoderBtn")}</button>
+        </div>
+        <div class="auth-option-action">
+          <button id="btn-run-qoder-umid" class="btn-secondary" style="flex: 1;">${t("wizardQoderUmidBtn")}</button>
+        </div>
+      </div>
+    `;
   } else if (provider === "codearts") {
     return `
       <div class="auth-option-card">
@@ -1497,6 +1534,19 @@ function bindProviderSpecificEvents(provider: string) {
       if (!pat) return;
       closeModal();
       startRunner("qoder-login", [], { QODER_PAT: pat });
+    });
+  } else if (provider === "qoder-intl") {
+    document.getElementById("btn-exchange-intl-pat")?.addEventListener("click", () => {
+      const pat = (document.getElementById("input-qoder-intl-pat") as HTMLInputElement)?.value.trim();
+      if (!pat) return;
+      closeModal();
+      // engine 打包后同一文件的两个入口都靠参数区分站点，必须显式带 --intl
+      startRunner("qoder-intl-login", ["--intl"], { QODER_INTL_PAT: pat });
+    });
+    // 设备身份由本机 Qoder 国际版客户端的 UMID 组件现场生成，写 .env 后才可跳过「缺少设备身份」
+    document.getElementById("btn-run-qoder-umid")?.addEventListener("click", () => {
+      closeModal();
+      startRunner("qoder-umid", []);
     });
   } else if (provider === "codearts") {
     document.getElementById("btn-run-codearts-oauth")?.addEventListener("click", () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { qoder, exchangePat, parseQoderUsage } from './qoder.ts';
+import { qoder, qoderIntl, exchangePat, parseQoderUsage } from './qoder.ts';
 import type { Account, RunContext } from '../core/types.ts';
 
 const account: Account = { provider: 'qoder', name: 'main', token: '', refreshToken: 'drt-1' };
@@ -242,4 +242,76 @@ test('parseQoderUsage 汇总 addOnQuota（免费额度为 0 时）', () => {
     }),
     { limit: 2900, used: 770, remain: 2130 },
   );
+});
+
+// 国际版与国际站（openapi.qoder.sh）是独立部署：会话不互通，且活动列表按设备身份下发。
+// 契约来源：magpie#1268（2026-10-08 真实账号对照）、dsh-connect-qoder docs/PAT.md、locdd 国际版脚本。
+function withEnv(vars: Record<string, string>, fn: () => Promise<void>): Promise<void> {
+  const prev: Record<string, string | undefined> = {};
+  for (const k of Object.keys(vars)) prev[k] = process.env[k];
+  Object.assign(process.env, vars);
+  return fn().finally(() => {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+}
+
+test('qoder-intl：走 openapi.qoder.sh，设备头取 QODER_INTL_* 前缀', async () => {
+  await withEnv({ QODER_INTL_COSY_MACHINE_TOKEN: 'imt-1', QODER_INTL_COSY_MACHINE_TYPE: 'itype-1' }, async () => {
+    const urls: string[] = [];
+    const bodies: string[] = [];
+    let seen: Record<string, string> = {};
+    const ctx = ctxWith((async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      urls.push(u);
+      if (u.includes('/deviceToken/refresh')) {
+        bodies.push(String(init?.body));
+        return new Response(JSON.stringify({ token: 'fresh-dt', refresh_token: 'drt-2' }), { status: 200 });
+      }
+      seen = (init?.headers ?? {}) as Record<string, string>;
+      return new Response(JSON.stringify({ campaigns: [] }), { status: 200 });
+    }) as typeof fetch);
+    const result = await qoderIntl.checkin({ provider: 'qoder-intl', name: 'main', token: '', refreshToken: 'drt-1' }, ctx);
+    assert.equal(result.ok, true);
+    assert.match(urls[0], /^https:\/\/openapi\.qoder\.sh\//, '国际版应打 .sh 域');
+    assert.equal(seen['Cosy-MachineToken'], 'imt-1');
+    assert.equal(seen['Cosy-MachineType'], 'itype-1');
+    // 刷新 body 字段名两来源冲突（CN refresh_token / 国际版 refreshToken），双发兼容
+    assert.deepEqual(JSON.parse(bodies[0]), { refresh_token: 'drt-1', refreshToken: 'drt-1' });
+  });
+});
+
+test('qoder-intl：缺设备身份直接失败，且不消耗 refreshToken、不发活动请求', async () => {
+  const prevToken = process.env.QODER_INTL_COSY_MACHINE_TOKEN;
+  const prevType = process.env.QODER_INTL_COSY_MACHINE_TYPE;
+  delete process.env.QODER_INTL_COSY_MACHINE_TOKEN;
+  delete process.env.QODER_INTL_COSY_MACHINE_TYPE;
+  try {
+    const calls: string[] = [];
+    const ctx = ctxWith((async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ campaigns: [] }), { status: 200 });
+    }) as typeof fetch);
+    const result = await qoderIntl.checkin({ provider: 'qoder-intl', name: 'main', token: '', refreshToken: 'drt-1' }, ctx);
+    assert.equal(result.ok, false, '缺设备头不能报成功（否则天天假阳性）');
+    assert.match(result.message, /设备/);
+    assert.equal(calls.length, 0, '缺设备头应在刷新前中止');
+  } finally {
+    if (prevToken !== undefined) process.env.QODER_INTL_COSY_MACHINE_TOKEN = prevToken;
+    if (prevType !== undefined) process.env.QODER_INTL_COSY_MACHINE_TYPE = prevType;
+  }
+});
+
+test('exchangePat：兼容 accessToken camelCase 形状（国际版响应）', async () => {
+  const calls: string[] = [];
+  const ctx = ctxWith((async (url: string | URL | Request) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ accessToken: 'jt-1', refreshToken: 'jrt-1' }), { status: 200 });
+  }) as typeof fetch);
+  const creds = await exchangePat('pt-abc', ctx, 'https://openapi.qoder.sh');
+  assert.equal(creds.token, 'jt-1');
+  assert.equal(creds.refreshToken, 'jrt-1');
+  assert.match(calls[0], /^https:\/\/openapi\.qoder\.sh\/api\/v1\/jobToken\/exchange$/);
 });

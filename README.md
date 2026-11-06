@@ -23,6 +23,7 @@
 |---|---|---|---|---|
 | WorkBuddy | [workbuddy.cn](https://www.workbuddy.cn) | 每日签到 | 可用 | 每日签到 + 积分到账对比 + 连登管家（兑换/抽奖）；真实 token 实跑确认 |
 | Qoder CN | [qoder.com.cn](https://qoder.com.cn) | 每日签到（活动领取） | 可用 | CLAIM_BENEFIT 活动领取，100 Credits/天，10:00（UTC+8）刷新；PAT 兑换 + 活动查询已真实 token 实跑确认，领取路径待定时运行覆盖 |
+| Qoder 国际版 | [qoder.com](https://qoder.com) | 每日签到（活动领取） | 可用 | 独立部署 `openapi.qoder.sh`，凭证与 CN 不互通；活动列表按设备身份下发，缺 `Cosy-MachineToken/Type` 只返回「无活动」的 200，Provider 缺头直接判失败；`npm run qoder-umid` 本机生成三件套；CF 实跑确认设备身份与活动查询（主动领取待次日窗口） |
 | Trae CN | [trae.cn](https://www.trae.cn) | 每日签到 | 可用 | 200 积分/天；`npm run trae-login` 浏览器授权（独立会话，与本机客户端互不影响）；`npm run trae-extract` 提取客户端登录态（备选，与客户端共享会话） |
 | AutoClaw 国际版 | [autoclaw.z.ai](https://autoclaw.z.ai) | 每日签到（任务领取） | 可用 | `daily_signin` 任务，实测 +400 积分/天；`npm run autoclaw-intl-login -- --oauth` 浏览器官方授权（阿里云滑块 + 本地回调）；真实 token 实跑确认 |
 | AutoClaw 国内版 | [autoclaw.zhipuai.cn](https://autoclaw.zhipuai.cn) | 登录触发（活动制） | 可用 | 每日 `daily_signin` 任务接口实测存在，登录动作触发发放；壳「凭证导入」短信登录（独立设备会话，与客户端互不影响）；真实短信登录 + CF 实跑确认（幂等路径），主动领取待无登录日覆盖 |
@@ -94,6 +95,25 @@ QODER_PAT=pt-xxx npm run qoder-login
 `config.json` 加账号：`{ "provider": "qoder", "name": "main", "refreshTokenEnv": "QODER_REFRESH_TOKEN", "enabled": true }`
 
 奖励规则：每天 10:00（UTC+8）刷新，100 Credits/天，服务端幂等（重复领取返回 `replayed`，不重复到账）；刷新时轮换 refreshToken 但**旧值不立即失效**，两端可短暂并存。若活动列表为空（服务端设备识别），可设 `QODER_COSY_MACHINE_TOKEN` 等设备头环境变量（见 `providers/qoder.ts` 的 `MACHINE_HEADERS` 映射）。
+
+#### Qoder 国际版（PAT 兑换 + 设备身份）
+
+国际站是**独立部署**（`openapi.qoder.sh`），与 CN 的会话、PAT 均不互通（CN token 打国际站报 401 `TOKEN_EXPIRE`）：
+
+```bash
+# 1. 国际版 PAT：https://qoder.com/account/integrations 创建（pt- 前缀）
+QODER_INTL_PAT=pt-xxx npm run qoder-login -- --intl
+# 写入 .env：QODER_INTL_REFRESH_TOKEN / QODER_INTL_TOKEN
+
+# 2. 设备身份三件套：本机 Qoder 国际版客户端自带 UMID 组件现场生成
+npm run qoder-umid
+# 写入 .env：QODER_INTL_COSY_MACHINE_TOKEN / _TYPE / _CODE
+# Linux/Windows：用 QODER_UMID_PATH 指向客户端 resources/umid/runtime-info[.exe]
+```
+
+`config.json` 加账号：`{ "provider": "qoder-intl", "name": "main", "refreshTokenEnv": "QODER_INTL_REFRESH_TOKEN", "enabled": true }`（先确认 `.env` 已写入凭证，否则 `resolveAccounts` 直接报错）。
+
+**缺设备头时接口不报错，只是没有活动**：国际版活动列表按设备身份下发，`Cosy-MachineToken` / `Cosy-MachineType` 缺失时返回 200 但没有 `CLAIM_BENEFIT` 项。Provider 对这种情形直接判失败（提示 `缺少设备身份…`），避免每日假阳性。设备身份与区域绑定，CN 客户端的头打国际站会被风控拒绝。云端执行需把三件套作为 Secrets 部署（`cf-deploy` 已纳入透传清单）。
 
 #### AutoClaw（短信登录）
 

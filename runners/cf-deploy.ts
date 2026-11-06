@@ -44,6 +44,8 @@ export interface DeployArgs {
   tz: string;
   cronOnly: boolean; // 只更新 cron 触发器（CF 平台的「保存定时」）
   triggerNow: boolean;
+  // 增量部署：只推这些 Secrets，不碰其他账号票。空=全量（会用本地 .env 覆盖 worker 自轮换链）
+  onlySecrets: string[];
 }
 
 export function parseDeployArgs(
@@ -54,6 +56,13 @@ export function parseDeployArgs(
     const idx = argv.indexOf(`--${flag}`);
     const v = idx === -1 ? undefined : argv[idx + 1]?.trim();
     return v && !v.startsWith('--') ? v : undefined;
+  };
+  const list = (flag: string): string[] => {
+    const idx = argv.indexOf(`--${flag}`);
+    if (idx === -1) return [];
+    const out: string[] = [];
+    for (let i = idx + 1; i < argv.length && !argv[i].startsWith('--'); i++) out.push(argv[i]);
+    return out;
   };
   // env 兜底：部署时写回 .env 的 CF_ACCOUNT_ID / CF_API_TOKEN（重复部署、触发、改定时不必重贴）
   const token = value('token') ?? env.CF_API_TOKEN;
@@ -71,6 +80,7 @@ export function parseDeployArgs(
     tz: value('tz') ?? 'Asia/Shanghai',
     cronOnly: argv.includes('--cron-only'),
     triggerNow: argv.includes('--trigger-now'),
+    onlySecrets: list('only-secrets'),
   };
 }
 
@@ -92,29 +102,40 @@ const EXTRA_SECRET_KEYS = [
   'AUTOCLAW_DEVICE_ID',
   'AUTOCLAW_INTL_DEVICE_ID',
   'QODER_COSY_MACHINE_TOKEN',
+  // Qoder 国际版签到必需：设备身份三件套（缺了活动列表只返回「无活动」的 200）
+  'QODER_INTL_COSY_MACHINE_TOKEN',
+  'QODER_INTL_COSY_MACHINE_TYPE',
+  'QODER_INTL_COSY_MACHINE_CODE',
 ] as const;
 
 // 部署计划：KV config（只含 accounts，platform 是桌面端概念不下发）、Secrets 清单（CF 管理凭证 + 账号凭证 + 辅助凭证）、cron
 export function buildDeployPlan(
   config: ConfigFile,
   env: Record<string, string | undefined>,
-  args: Pick<DeployArgs, 'token' | 'account' | 'hour' | 'tz'>,
+  args: Pick<DeployArgs, 'token' | 'account' | 'hour' | 'tz'> & { onlySecrets?: string[] },
 ): { kvConfig: string; secrets: Array<{ name: string; value: string }>; crons: string[] } {
   const accountKeys = config.accounts.flatMap((a) => [a.tokenEnv, a.refreshTokenEnv].filter((n): n is string => !!n));
   const extraKeys = EXTRA_SECRET_KEYS.filter((k) => env[k]);
-  const missing = [...accountKeys, ...extraKeys].filter((n) => !env[n]);
-  // 辅助键缺失不阻断（有默认值/可选），账号凭证缺失才整体报错
-  const missingAccount = accountKeys.filter((n) => !env[n]);
+  const known = [...new Set([...accountKeys, ...extraKeys])];
+  const only = args.onlySecrets ?? [];
+  // 拼错的名字必须报错：静默跳过会让「部署成功」变成假象
+  const unknown = only.filter((n) => !known.includes(n));
+  if (unknown.length > 0) {
+    throw new Error(`--only-secrets 含未知凭证名：${unknown.join(', ')}（可用：${known.join(', ')}）`);
+  }
+  // 增量模式只校验要推的键；全量模式校验账号凭证（辅助键缺失不阻断）
+  const required = only.length > 0 ? only : accountKeys;
+  const missingAccount = required.filter((n) => !env[n]);
   if (missingAccount.length > 0) {
     throw new Error(`以下凭证未在 .env/环境中配置，无法部署：${missingAccount.join(', ')}（请先在桌面端完成凭证导入）`);
   }
-  void missing;
+  const picked = only.length > 0 ? only : known;
   return {
     kvConfig: JSON.stringify({ accounts: config.accounts }),
     secrets: [
       { name: 'CF_ACCOUNT_ID', value: args.account },
       { name: 'CF_API_TOKEN', value: args.token },
-      ...[...new Set([...accountKeys, ...extraKeys])].map((n) => ({ name: n, value: env[n] as string })),
+      ...picked.map((n) => ({ name: n, value: env[n] as string })),
     ],
     crons: [dailyCron(cronHourFor(args.hour, args.tz))],
   };

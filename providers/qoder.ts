@@ -1,6 +1,6 @@
 import type { Account, CheckinResult, Provider, RunContext } from '../core/types.ts';
 
-// Qoder CN 签到（逆向自桌面端，三来源交叉验证：dsh-qoder-connect 源码 / wallechfox-qoder-checkin 源码 / 客户端 main.log 抓包）：
+// Qoder 签到（逆向自桌面端，三来源交叉验证：dsh-qoder-connect 源码 / wallechfox-qoder-checkin 源码 / 客户端 main.log 抓包）：
 //   POST {base}/api/v1/deviceToken/refresh   body { refresh_token }
 //     → token（兼容 accessToken / device_token 字段）；每次轮换 refreshToken，但旧值不立即失效
 //   GET  {base}/sash/api/v1/me/campaigns   Authorization: Bearer <token> + Cosy-ClientType: 10
@@ -8,29 +8,44 @@ import type { Account, CheckinResult, Provider, RunContext } from '../core/types
 //   POST {base}/sash/api/v1/me/campaigns/<campaignId>/claim   body {}
 //     → status=CLAIMED 或 replayed=true 判成功（服务端幂等，重复领取不重复到账）
 // 每日奖励 10:00（UTC+8）刷新，每次 100 Credits，领取后 30 天有效。
-// 成功路径待真实 token 最终确认（与 workbuddy 上线时同标准）。
-const BASE = process.env.QODER_BASE_URL ?? 'https://openapi.qoder.com.cn';
+//
+// 双区域是两个独立部署（会话不互通，CN token 打 .sh 报 401 TOKEN_EXPIRE），且国际版活动列表
+// 按设备身份下发——缺 Cosy-MachineToken / Cosy-MachineType 时返回 200 但没有 CLAIM_BENEFIT 项
+// （magpie#1268 2026-10-08 真实账号对照；dsh-connect-qoder docs/PAT.md 同结论）。所以区域做成
+// 两个 Provider（与 AutoClaw CN/Intl 同款建模），不把地区降为账号属性。
+const CN_BASE = 'https://openapi.qoder.com.cn';
+const INTL_BASE = 'https://openapi.qoder.sh';
+
+// env 在调用时读取，避免模块加载期把区域钉死（测试与 worker 都要能注入）
+function baseOf(envName: string, fallback: string): string {
+  return process.env[envName] ?? fallback;
+}
 
 // 设备标识头：Qoder 服务端据 Cosy-MachineToken 等识别设备，缺失时活动列表可能为空（wallechfox 实测）。
 // 值从桌面客户端本地提取后经环境变量注入（青龙/CI 场景同理），为空则不发送该头。
 // ponytail: 只做环境变量透传，不做客户端本地提取；提取工具链属桌面壳 L2 范畴
 const MACHINE_HEADERS: Record<string, string> = {
-  QODER_COSY_MACHINE_OS: 'Cosy-MachineOS',
-  QODER_COSY_MACHINE_HOSTNAME: 'Cosy-MachineHostname',
-  QODER_COSY_MACHINE_ID: 'Cosy-MachineId',
-  QODER_COSY_MACHINE_TOKEN: 'Cosy-MachineToken',
-  QODER_COSY_MACHINE_CODE: 'Cosy-MachineCode',
-  QODER_COSY_MACHINE_TYPE: 'Cosy-MachineType',
-  QODER_COSY_VERSION: 'Cosy-Version',
+  COSY_MACHINE_OS: 'Cosy-MachineOS',
+  COSY_MACHINE_HOSTNAME: 'Cosy-MachineHostname',
+  COSY_MACHINE_ID: 'Cosy-MachineId',
+  COSY_MACHINE_TOKEN: 'Cosy-MachineToken',
+  COSY_MACHINE_CODE: 'Cosy-MachineCode',
+  COSY_MACHINE_TYPE: 'Cosy-MachineType',
+  COSY_VERSION: 'Cosy-Version',
 };
 
-function deviceHeaders(): Record<string, string> {
+// 前缀区分区域：CN 用 QODER_*，国际版用 QODER_INTL_*（设备身份与区域绑定，用错一侧会被风控拒）
+function deviceHeaders(prefix: string): Record<string, string> {
   const headers: Record<string, string> = {};
-  for (const [env, header] of Object.entries(MACHINE_HEADERS)) {
-    const value = process.env[env];
+  for (const [suffix, header] of Object.entries(MACHINE_HEADERS)) {
+    const value = process.env[`${prefix}_${suffix}`];
     if (value) headers[header] = value;
   }
   return headers;
+}
+
+function hasDeviceIdentity(device: Record<string, string>): boolean {
+  return Boolean(device['Cosy-MachineToken'] && device['Cosy-MachineType']);
 }
 
 type JsonBody = {
@@ -58,20 +73,23 @@ async function parseJson(res: Response): Promise<{ data: JsonBody | null; text: 
 
 // 刷新端点按令牌前缀分派（Agent2API 实测）：jrt-（PAT 兑换的作业令牌）与 drt-（设备流）
 // 端点不可互换，混用会被判令牌无效；两条路径都只需 body 里的 refresh_token，无需 COSY 签名
-function refreshUrl(refreshToken: string): string {
+function refreshUrl(refreshToken: string, base: string): string {
   return refreshToken.startsWith('jrt-')
-    ? `${BASE}/api/v1/jobToken/refresh`
-    : `${BASE}/api/v1/deviceToken/refresh`;
+    ? `${base}/api/v1/jobToken/refresh`
+    : `${base}/api/v1/deviceToken/refresh`;
 }
 
 async function refreshAccessToken(
   refreshToken: string,
   ctx: RunContext,
+  base: string,
 ): Promise<{ accessToken: string; rotatedRefreshToken?: string }> {
-  const res = await ctx.fetch(refreshUrl(refreshToken), {
+  const res = await ctx.fetch(refreshUrl(refreshToken, base), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken }),
+    // 刷新 body 字段名两来源冲突：CN 实测 refresh_token，国际版脚本用 refreshToken。双发兼容，
+    // 任一服务端忽略未知字段；若实测被严格 schema 拒绝，改为按响应 400 重试另一字段。
+    body: JSON.stringify({ refresh_token: refreshToken, refreshToken }),
   });
   const { data, text } = await parseJson(res);
   // 三来源字段形状不一致（token / accessToken / device_token），双路径兼容
@@ -83,13 +101,13 @@ async function refreshAccessToken(
   return { accessToken, rotatedRefreshToken };
 }
 
-function campaignHeaders(token: string): Record<string, string> {
+function campaignHeaders(token: string, device: Record<string, string>): Record<string, string> {
   return {
     Accept: 'application/json',
     Authorization: `Bearer ${token}`,
     'Cosy-ClientType': '10',
     'User-Agent': 'Qoder/claim',
-    ...deviceHeaders(),
+    ...device,
   };
 }
 
@@ -101,15 +119,17 @@ function campaignHeaders(token: string): Record<string, string> {
 export async function exchangePat(
   pat: string,
   ctx: RunContext,
+  base: string = baseOf('QODER_BASE_URL', CN_BASE),
 ): Promise<{ token: string; refreshToken: string }> {
   if (!pat) throw new Error('PAT 不能为空');
-  const res = await ctx.fetch(`${BASE}/api/v1/jobToken/exchange`, {
+  const res = await ctx.fetch(`${base}/api/v1/jobToken/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ personal_token: pat }),
   });
   const { data, text } = await parseJson(res);
-  const token = data?.token;
+  // 两区域字段名不同：CN 返回 token，国际版返回 accessToken（locdd 国际版脚本实测）
+  const token = data?.token ?? data?.accessToken;
   const refreshToken = data?.refresh_token ?? data?.refreshToken;
   if (!token || !refreshToken) {
     throw new Error(`PAT 兑换失败: HTTP ${res.status} ${text.slice(0, 120)}`);
@@ -167,9 +187,14 @@ interface UsageResult {
   error?: string; // 仅进 detail，便于排查（不改变签到判定）
 }
 
-async function queryUsage(token: string, ctx: RunContext): Promise<UsageResult> {
+async function queryUsage(
+  token: string,
+  ctx: RunContext,
+  base: string,
+  device: Record<string, string>,
+): Promise<UsageResult> {
   try {
-    const res = await ctx.fetch(`${BASE}/sash/api/v2/me/usage`, { headers: campaignHeaders(token) });
+    const res = await ctx.fetch(`${base}/sash/api/v2/me/usage`, { headers: campaignHeaders(token, device) });
     const text = await res.text();
     if (!res.ok) return { usage: null, error: `HTTP ${res.status} ${text.slice(0, 200)}` };
     const usage = parseQoderUsage(JSON.parse(text));
@@ -179,98 +204,140 @@ async function queryUsage(token: string, ctx: RunContext): Promise<UsageResult> 
   }
 }
 
-export const qoder: Provider = {
+interface QoderProviderOptions {
+  id: string;
+  name: string;
+  baseEnv: string;
+  defaultBase: string;
+  devicePrefix: string; // CN='QODER'，国际版='QODER_INTL'
+  requireDevice?: boolean; // 国际版活动列表按设备身份下发，缺失必判失败
+}
+
+export function createQoderProvider(opts: QoderProviderOptions): Provider {
+  return {
+    id: opts.id,
+    name: opts.name,
+    async checkin(account: Account, ctx: RunContext): Promise<CheckinResult> {
+      const base = baseOf(opts.baseEnv, opts.defaultBase);
+      const device = deviceHeaders(opts.devicePrefix);
+      // 缺设备头时国际版返回 200 但没有 CLAIM_BENEFIT 项——沿用 CN 的「暂无可领取」会天天假阳性。
+      // 刷新前就中止，避免白白消耗一次性 refreshToken。
+      if (opts.requireDevice && !hasDeviceIdentity(device)) {
+        return {
+          ok: false,
+          message: `缺少设备身份（${opts.devicePrefix}_COSY_MACHINE_TOKEN / ${opts.devicePrefix}_COSY_MACHINE_TYPE）：${opts.name} 活动列表只在携带设备指纹时下发，缺失会误报「无活动」；用 npm run qoder-umid 生成后注入`,
+        };
+      }
+
+      let accessToken = account.token;
+      let rotatedRefreshToken: string | undefined;
+      if (account.refreshToken) {
+        try {
+          const refreshed = await refreshAccessToken(account.refreshToken, ctx, base);
+          accessToken = refreshed.accessToken;
+          rotatedRefreshToken = refreshed.rotatedRefreshToken;
+        } catch (err) {
+          return { ok: false, message: (err as Error).message };
+        }
+      }
+      if (!accessToken) {
+        return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
+      }
+
+      const usageResult = await queryUsage(accessToken, ctx, base, device);
+      const usage = usageResult.usage;
+      const usageSuffix = usage ? `；剩余 ${usage.remain}/${usage.limit}` : '';
+      const res = await ctx.fetch(`${base}/sash/api/v1/me/campaigns`, {
+        headers: campaignHeaders(accessToken, device),
+      });
+      const { data, text } = await parseJson(res);
+      if (!data) {
+        return { ok: false, message: `查询活动失败: HTTP ${res.status}，响应非 JSON: ${text.slice(0, 120)}`, rotatedRefreshToken };
+      }
+      // campaigns 可能在顶层或 data 下（两来源形态不同）
+      const rawCampaigns = (data.campaigns ?? data.data?.campaigns) as JsonBody['campaigns'];
+      const campaigns = (rawCampaigns ?? []) as Array<Record<string, unknown>>;
+      const benefits = campaigns.filter((c) => c.actionType === 'CLAIM_BENEFIT');
+      const claimable = benefits.filter((c) => c.claimStatus === 'CLAIMABLE');
+      const alreadyClaimed = benefits.some((c) => c.claimStatus === 'CLAIMED');
+      const detail = { status: res.status, campaigns, usage, usageError: usageResult.error, device: hasDeviceIdentity(device), rotatedRefreshToken };
+
+      if (claimable.length === 0) {
+        return {
+          ok: true,
+          message: `${alreadyClaimed ? '今日已领取（服务端幂等跳过）' : '暂无可领取的签到活动（未开放或已结束）'}${usageSuffix}`,
+          skipped: alreadyClaimed || undefined,
+          detail,
+          rotatedRefreshToken,
+        };
+      }
+
+      const amounts: number[] = [];
+      const errors: string[] = [];
+      let replayed = false;
+      for (const c of claimable) {
+        const campaignId = String(c.campaignId);
+        const claimRes = await ctx.fetch(`${base}/sash/api/v1/me/campaigns/${encodeURIComponent(campaignId)}/claim`, {
+          method: 'POST',
+          headers: { ...campaignHeaders(accessToken, device), 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const claim = await parseJson(claimRes);
+        // status 可能在顶层或 data 下；replayed=true 为幂等回放（今日已领过）
+        const body = (claim.data?.data ?? claim.data) as JsonBody | undefined;
+        const success = claimRes.status === 200 && (body?.status === 'CLAIMED' || body?.replayed === true);
+        if (success) {
+          if (body?.replayed === true) replayed = true;
+          // 到账金额只认 claim 响应：回放时没有新积分到账，不能用活动对象的广告金额冒充
+          const amount = (body?.benefit as { amount?: number } | undefined)?.amount;
+          if (typeof amount === 'number') amounts.push(amount);
+        } else {
+          errors.push(`${campaignId}: HTTP ${claimRes.status} ${claim.text.slice(0, 80)}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        return {
+          ok: false,
+          message: `领取失败 ${errors.length}/${claimable.length}: ${errors.join('; ')}`,
+          detail,
+          rotatedRefreshToken,
+        };
+      }
+      if (replayed && amounts.length === 0) {
+        return {
+          ok: true,
+          message: `今日已领取（服务端幂等回放）${usageSuffix}`,
+          detail: { ...detail, claimed: claimable.length },
+          rotatedRefreshToken,
+        };
+      }
+      const amountText = amounts.length > 0 ? `到账 ${amounts.join('+')} Credits` : '领取成功';
+      return {
+        ok: true,
+        message: `签到成功：${amountText}${usageSuffix}`,
+        detail: { ...detail, claimed: claimable.length },
+        rotatedRefreshToken,
+      };
+    },
+  };
+}
+
+// CN：设备头可选（实测多发在 CN 侧是噪音，但保留透传兼容活动窗口按设备下发的场景）
+export const qoder = createQoderProvider({
   id: 'qoder',
   name: 'Qoder',
-  async checkin(account: Account, ctx: RunContext): Promise<CheckinResult> {
-    let accessToken = account.token;
-    let rotatedRefreshToken: string | undefined;
-    if (account.refreshToken) {
-      try {
-        const refreshed = await refreshAccessToken(account.refreshToken, ctx);
-        accessToken = refreshed.accessToken;
-        rotatedRefreshToken = refreshed.rotatedRefreshToken;
-      } catch (err) {
-        return { ok: false, message: (err as Error).message };
-      }
-    }
-    if (!accessToken) {
-      return { ok: false, message: '账号缺少 token：需要 tokenEnv 或 refreshTokenEnv' };
-    }
+  baseEnv: 'QODER_BASE_URL',
+  defaultBase: CN_BASE,
+  devicePrefix: 'QODER',
+});
 
-    const usageResult = await queryUsage(accessToken, ctx);
-    const usage = usageResult.usage;
-    const usageSuffix = usage ? `；剩余 ${usage.remain}/${usage.limit}` : '';
-    const res = await ctx.fetch(`${BASE}/sash/api/v1/me/campaigns`, {
-      headers: campaignHeaders(accessToken),
-    });
-    const { data, text } = await parseJson(res);
-    if (!data) {
-      return { ok: false, message: `查询活动失败: HTTP ${res.status}，响应非 JSON: ${text.slice(0, 120)}`, rotatedRefreshToken };
-    }
-    // campaigns 可能在顶层或 data 下（两来源形态不同）
-    const rawCampaigns = (data.campaigns ?? data.data?.campaigns) as JsonBody['campaigns'];
-    const campaigns = (rawCampaigns ?? []) as Array<Record<string, unknown>>;
-    const benefits = campaigns.filter((c) => c.actionType === 'CLAIM_BENEFIT');
-    const claimable = benefits.filter((c) => c.claimStatus === 'CLAIMABLE');
-    const alreadyClaimed = benefits.some((c) => c.claimStatus === 'CLAIMED');
-
-    if (claimable.length === 0) {
-      return {
-        ok: true,
-        message: `${alreadyClaimed ? '今日已领取（服务端幂等跳过）' : '暂无可领取的签到活动（未开放或已结束）'}${usageSuffix}`,
-        skipped: alreadyClaimed || undefined,
-        detail: { status: res.status, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
-        rotatedRefreshToken,
-      };
-    }
-
-    const amounts: number[] = [];
-    const errors: string[] = [];
-    let replayed = false;
-    for (const c of claimable) {
-      const campaignId = String(c.campaignId);
-      const claimRes = await ctx.fetch(`${BASE}/sash/api/v1/me/campaigns/${encodeURIComponent(campaignId)}/claim`, {
-        method: 'POST',
-        headers: { ...campaignHeaders(accessToken), 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const claim = await parseJson(claimRes);
-      // status 可能在顶层或 data 下；replayed=true 为幂等回放（今日已领过）
-      const body = (claim.data?.data ?? claim.data) as JsonBody | undefined;
-      const success = claimRes.status === 200 && (body?.status === 'CLAIMED' || body?.replayed === true);
-      if (success) {
-        if (body?.replayed === true) replayed = true;
-        // 到账金额只认 claim 响应：回放时没有新积分到账，不能用活动对象的广告金额冒充
-        const amount = (body?.benefit as { amount?: number } | undefined)?.amount;
-        if (typeof amount === 'number') amounts.push(amount);
-      } else {
-        errors.push(`${campaignId}: HTTP ${claimRes.status} ${claim.text.slice(0, 80)}`);
-      }
-    }
-
-    if (errors.length > 0) {
-      return {
-        ok: false,
-        message: `领取失败 ${errors.length}/${claimable.length}: ${errors.join('; ')}`,
-        detail: { status: res.status, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
-        rotatedRefreshToken,
-      };
-    }
-    if (replayed && amounts.length === 0) {
-      return {
-        ok: true,
-        message: `今日已领取（服务端幂等回放）${usageSuffix}`,
-        detail: { status: res.status, claimed: claimable.length, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
-        rotatedRefreshToken,
-      };
-    }
-    const amountText = amounts.length > 0 ? `到账 ${amounts.join('+')} Credits` : '领取成功';
-    return {
-      ok: true,
-      message: `签到成功：${amountText}${usageSuffix}`,
-      detail: { status: res.status, claimed: claimable.length, campaigns, usage, usageError: usageResult.error, rotatedRefreshToken },
-      rotatedRefreshToken,
-    };
-  },
-};
+// 国际版：独立部署 + 设备身份必需；凭证与 CN 不互通（PAT 需在 qoder.com 单独创建）
+export const qoderIntl = createQoderProvider({
+  id: 'qoder-intl',
+  name: 'Qoder 国际版',
+  baseEnv: 'QODER_INTL_BASE_URL',
+  defaultBase: INTL_BASE,
+  devicePrefix: 'QODER_INTL',
+  requireDevice: true,
+});

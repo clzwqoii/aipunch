@@ -20,6 +20,9 @@ const ENTRIES = {
   'trae-extract': 'runners/trae-extract.ts',
   'trae-login': 'runners/trae-login.ts',
   'qoder-login': 'runners/qoder-login.ts',
+  // 同一文件的国际版入口：--intl 切换站点与 env 键（账号登记需按脚本名区分 provider）
+  'qoder-intl-login': 'runners/qoder-login.ts',
+  'qoder-umid': 'runners/qoder-umid.ts',
   'codearts-login': 'runners/codearts-login.ts',
   'autoclaw-login': 'runners/autoclaw-login.ts',
   'autoclaw-intl-login': 'runners/autoclaw-intl-login.ts',

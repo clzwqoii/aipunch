@@ -10,6 +10,8 @@
     "trae-extract": "tsx runners/trae-extract.ts",
     "trae-login": "tsx runners/trae-login.ts",
     "qoder-login": "tsx runners/qoder-login.ts",
+    "qoder-intl-login": "tsx runners/qoder-login.ts --intl",
+    "qoder-umid": "tsx runners/qoder-umid.ts",
     "autoclaw-login": "tsx runners/autoclaw-login.ts",
     "autoclaw-intl-login": "tsx runners/autoclaw-intl-login.ts",
     "codearts-login": "tsx runners/codearts-login.ts",

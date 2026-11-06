@@ -4,6 +4,16 @@
 
 ## 当前有效
 
+### Qoder 国际版按区域拆两个 Provider 设备身份必需且缺失硬失败
+- 状态：生效
+- 决定：Qoder CN（`qoder`）与国际版（`qoder-intl`）是两套独立部署，做成两个 Provider 共用 `createQoderProvider` 工厂，不把区域降为账号属性。国际版活动列表按设备身份下发，Provider 在消耗 refreshToken **之前**校验 `QODER_INTL_COSY_MACHINE_TOKEN` / `_TYPE`，缺失直接判失败——沿用 CN 的「暂无可领取」会把 200 但无活动误报成签到成功。
+- 背景：magpie#1268（2026-10-08 真实账号对照：补两个头后出现每日 100 积分活动，移除即消失）；dsh-connect-qoder `docs/PAT.md` 同结论（CN 不需要这三个头，多发是噪音）。CN token 打国际站报 401 `TOKEN_EXPIRE`，两站会话与 PAT 均不互通。
+- 影响：`providers/qoder.ts`（createQoderProvider / qoderIntl / exchangePat base 参数 / refresh body 双字段）、`core/umid.ts` + `runners/qoder-umid.ts`（设备三件套生成）、`runners/qoder-login.ts --intl`、`runners/cf-deploy.ts`（EXTRA_SECRET_KEYS）、壳端导入卡与 i18n。
+- 验证：qoder 单测 18/18 + 全量 264/264 + 壳 tsc 与 6 测试；`npm run qoder-umid -- --print` 真实产出三件套（两次 machineToken 一致）；**2026-11-06 CF 实跑 8/8 成功**，`qoder-intl` 返回「今日已领取（服务端幂等跳过）；剩余 0/100」——设备身份被接受、活动列表确有 `CLAIM_BENEFIT`（头无效时会是「暂无可领取」）。
+- 修订：
+  - 2026-11-06 首次记录（**未验证**：主动领取动作待次日窗口；设备头长期时效待隔日复测）
+  - 2026-11-06 `cf-deploy` 增 `--only-secrets`：CF 增量部署只推指定凭证，避免全量用本地旧票覆盖 worker 自轮换链
+
 ### AutoClaw 登录奖励靠 user-info 触发 每日必须先打 user-info 再签到
 - 状态：生效
 - 决定：AutoClaw CN（+10000）与国际版（+4000）的「登录奖励」没有领取接口，服务端只在 `POST /userapi/v1/user-info` 时按活跃入账；签到接口、refresh、home-fetch 都不触发。Provider 每日流程固定为：refresh → **user-info（登录动作）** → task-complete（每日签到）→ 读积分流水核对今日活动入账。

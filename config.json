@@ -43,6 +43,12 @@
       "name": "main",
       "refreshTokenEnv": "AUTOCLAW_REFRESH_TOKEN",
       "enabled": true
+    },
+    {
+      "provider": "qoder-intl",
+      "name": "main",
+      "refreshTokenEnv": "QODER_INTL_REFRESH_TOKEN",
+      "enabled": true
     }
   ]
 }
