@@ -6,6 +6,7 @@ import { t, getCurrentLang, setLanguage, Lang, translations } from "./i18n";
 import { escapeHtml } from "./html";
 import { retryAsync } from "./retry";
 import { PROVIDER_METAS, CRED_BRAND_PROVIDER } from "./provider-registry";
+import { singleRunTarget } from "./run-target";
 
 const appWindow = getCurrentWindow();
 
@@ -780,15 +781,15 @@ function renderProviderCards() {
     });
   });
 
-  // 绑定单跑（按当前平台分流：本地引擎 / 触发 CI）
+  // 绑定单跑（按当前平台分流：本地引擎 / GitHub CI / CF 整轮触发）
   container.querySelectorAll<HTMLButtonElement>(".btn-icon-single").forEach((btn) => {
     btn.addEventListener("click", () => {
       const provider = btn.dataset.provider;
       const name = btn.dataset.name;
       if (!provider || !name) return;
-      const runner = activePlatform() === "local" ? "checkin" : "ci-checkin";
-      appendTerminalLog(`[ACTION] ${activePlatform() === "local" ? "本地" : "触发 CI"}签到：${provider}/${name}...`);
-      void startRunner(runner, ["--provider", provider, "--account", name]);
+      const target = singleRunTarget(activePlatform(), provider, name);
+      appendTerminalLog(target.log);
+      void startRunner(target.runner, target.args);
     });
   });
 
