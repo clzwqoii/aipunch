@@ -13,6 +13,7 @@
 - 修订：
   - 2026-11-06 首次记录（**未验证**：主动领取动作待次日窗口；设备头长期时效待隔日复测）
   - 2026-11-06 `cf-deploy` 增 `--only-secrets`：CF 增量部署只推指定凭证，避免全量用本地旧票覆盖 worker 自轮换链
+  - 2026-11-09 事故与修复：11-06 的 `--trigger-now` 被 CF API 503 打断后 cron 停在「每分钟」，几轮执行反复刷新同一张一次性票，耗尽 CodeArts 两个执行端的票（`STS5.1806 the refresh token has been used`）；两张本地备用票均已耗，只能重新 OAuth（`npm run codearts-login`），新票本地验证成功（+100 积分）后连同 DPoP 私钥/verifier 用 `--only-secrets` 推送。**教训：`--trigger-now` 任何异常后必须核对 cron 是否回到每日整点**
 
 ### AutoClaw 登录奖励靠 user-info 触发 每日必须先打 user-info 再签到
 - 状态：生效
