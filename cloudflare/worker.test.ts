@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RunResult } from '../core/types.ts';
-import { kvResultEntry, persistRotations, pushRunHistory, secretsView } from './worker.ts';
+import { applyRotations, kvResultEntry, persistRotations, pushRunHistory, secretsView } from './worker.ts';
 
 function fakeRun(overrides: Partial<RunResult> = {}): RunResult {
   return {
@@ -87,4 +87,19 @@ test('pushRunHistory 去重、按新到旧、限制条数', () => {
   assert.equal(pushRunHistory(JSON.stringify(many), entry(9), 3).length, 3);
   // 损坏历史按空处理
   assert.deepEqual(pushRunHistory('not-json', entry(1)), [entry(1)]);
+});
+
+// 热 isolate 会缓存旧 Secrets（部署/回写后 env 仍是旧值）：运行时轮换票必须自己记住，
+// 否则同一 isolate 的下一轮执行拿已作废的旧票刷新（实测 12:20 成功、12:31 起连续 400）
+test('applyRotations：运行时轮换票覆盖 Secrets 旧值，且不修改入参', () => {
+  const view = { CODEARTS_REFRESH_TOKEN: 'old', OTHER: 'x' };
+  const merged = applyRotations(view, new Map([['CODEARTS_REFRESH_TOKEN', 'new']]));
+  assert.equal(merged.CODEARTS_REFRESH_TOKEN, 'new');
+  assert.equal(merged.OTHER, 'x');
+  assert.equal(view.CODEARTS_REFRESH_TOKEN, 'old');
+});
+
+test('applyRotations：无缓存时原样返回（零开销路径）', () => {
+  const view = { A: '1' };
+  assert.equal(applyRotations(view, new Map()), view);
 });

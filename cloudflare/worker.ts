@@ -53,6 +53,21 @@ export function kvResultEntry(result: RunResult, now: Date) {
   return { ...toResultFile(result), runId: now.getTime(), finishedAt: now.toISOString() };
 }
 
+// 热 isolate 的 env 绑定不会随 Secrets 更新：回写成功后同一 isolate 的下一轮仍读旧票，
+// 拿已作废的一次性票刷新会连续 400（实测 12:20 成功、12:31 起失败）。模块级缓存记住本
+// isolate 生命周期内的轮换结果；isolate 冷启动后自然回落到 Secrets 里的值。
+const runtimeRotations = new Map<string, string>();
+
+export function applyRotations(
+  view: Record<string, string | undefined>,
+  cache: ReadonlyMap<string, string>,
+): Record<string, string | undefined> {
+  if (cache.size === 0) return view;
+  const merged = { ...view };
+  for (const [name, value] of cache) merged[name] = value;
+  return merged;
+}
+
 // 轮换票自我回写：PUT secrets（单条端点，无需重传脚本）
 async function putSecret(env: Env, name: string, value: string): Promise<void> {
   const res = await fetch(
@@ -93,8 +108,10 @@ async function runScheduled(env: Env): Promise<void> {
   const raw = await env.AIPUNCH_KV.get('config');
   if (!raw) throw new Error('KV 缺少 config：请经桌面端部署写入');
   const config = JSON.parse(raw) as ConfigFile;
-  const accounts = resolveAccounts(config, secretsView(env));
+  const accounts = resolveAccounts(config, applyRotations(secretsView(env), runtimeRotations));
   const result = await runCheckins(accounts, { now: new Date(), fetch: fetchWithTimeout(30_000) });
+  // 先记内存再回写：回写失败时本 isolate 的后续轮次仍能用新票，不至于当场断链
+  for (const notice of rotationNotices(result)) runtimeRotations.set(notice.name, notice.token);
   const entry = kvResultEntry(result, new Date());
   await env.AIPUNCH_KV.put('result', JSON.stringify(entry));
   // 历史留着可回溯（KV 的 result 只存最新一条）；写失败不影响本次签到
