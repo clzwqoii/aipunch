@@ -5,6 +5,7 @@ import { check, Update } from "@tauri-apps/plugin-updater";
 import { t, getCurrentLang, setLanguage, Lang, translations } from "./i18n";
 import { escapeHtml } from "./html";
 import { retryAsync } from "./retry";
+import { PROVIDER_METAS, CRED_BRAND_PROVIDER } from "./provider-registry";
 
 const appWindow = getCurrentWindow();
 
@@ -25,66 +26,6 @@ interface AppConfig {
   // 'cloudflare-workers' 为 P2 预留，UI 中禁用
   platform?: string;
 }
-
-const PROVIDER_METAS: Record<
-  string,
-  { name: string; iconBg: string; brandChar: string; hintKey: keyof typeof translations.zh }
-> = {
-  trae: {
-    name: "Trae",
-    iconBg: "linear-gradient(135deg, #0052d9 0%, #00f2fe 100%)",
-    brandChar: "T",
-    hintKey: "traeHint",
-  },
-  qoder: {
-    name: "Qoder",
-    iconBg: "linear-gradient(135deg, #7928ca 0%, #ff0080 100%)",
-    brandChar: "Q",
-    hintKey: "qoderHint",
-  },
-  "qoder-intl": {
-    name: "Qoder 国际版",
-    iconBg: "linear-gradient(135deg, #7928ca 0%, #ff0080 100%)",
-    brandChar: "Q",
-    hintKey: "qoderIntlHint",
-  },
-  codearts: {
-    name: "CodeArts",
-    iconBg: "linear-gradient(135deg, #c7000b 0%, #ff6b6b 100%)",
-    brandChar: "C",
-    hintKey: "codeartsHint",
-  },
-  workbuddy: {
-    name: "WorkBuddy",
-    iconBg: "linear-gradient(135deg, #2b7fff 0%, #10b981 100%)",
-    brandChar: "W",
-    hintKey: "workbuddyHint",
-  },
-  "autoclaw-intl": {
-    name: "AutoClaw",
-    iconBg: "linear-gradient(135deg, #0f172a 0%, #06b6d4 100%)",
-    brandChar: "A",
-    hintKey: "autoclawHint",
-  },
-  autoclaw: {
-    name: "AutoClaw CN",
-    iconBg: "linear-gradient(135deg, #0f172a 0%, #f59e0b 100%)",
-    brandChar: "A",
-    hintKey: "autoclawCnHint",
-  },
-  "autoclaw-cn": {
-    name: "AutoClaw CN",
-    iconBg: "linear-gradient(135deg, #0f172a 0%, #f59e0b 100%)",
-    brandChar: "A",
-    hintKey: "autoclawCnHint",
-  },
-  raccoon: {
-    name: "小浣熊",
-    iconBg: "linear-gradient(135deg, #f97316 0%, #facc15 100%)",
-    brandChar: "浣",
-    hintKey: "raccoonHint",
-  },
-};
 
 let currentConfig: AppConfig = { accounts: [] };
 let configuredEnvKeys: string[] = [];
@@ -542,17 +483,6 @@ function applyBalances(): void {
   applyDoneState();
   renderTotalBalance();
 }
-
-const CRED_BRAND_PROVIDER: Record<string, string> = {
-  qoder: "qoder",
-  "qoder-intl": "qoder-intl",
-  trae: "trae",
-  codearts: "codearts",
-  autoclaw: "autoclaw-intl",
-  workbuddy: "workbuddy",
-  "autoclaw-cn": "autoclaw",
-  raccoon: "raccoon",
-};
 
 // 各导入卡对应的凭证键：凭证写入 .env 即视为「已导入」，不依赖账号接入与运行结果
 const CRED_BRAND_ENV_KEYS: Record<string, string[]> = {

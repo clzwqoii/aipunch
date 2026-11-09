@@ -59,6 +59,21 @@ AIPunch 协作规则。面向人类贡献者与 AI Agent；改动代码前先读
 | QwenWork / 通义灵码 / iFlow | — | ❌ 无签到证据 | 2026-10-19 调研：无每日签到接口的社区实现，也无官方签到活动记录；额度模型非每日签到形态 |
 | CatPaw / Loomy | — | ❌ 无签到 | 生态表确认无签到功能（CatPaw 另无 token 刷新机制） |
 
+## 桌面壳供应商清单一致性
+
+账号管理卡片与凭证导入卡片是**两套独立清单**，新增/删除 Provider 必须同批改，缺一处就会出现「账号管理有、凭证导入没有」（或反过来）。落点清单：
+
+| 落点 | 位置 | 作用 |
+|---|---|---|
+| 注册 | `providers/index.ts` | 执行端可用 |
+| 元信息 | `shell/src/provider-registry.ts` 的 `PROVIDER_METAS` | 账号管理卡片名称/图标/提示 |
+| 导入卡映射 | 同文件 `CRED_BRAND_PROVIDER` | 卡片 brand → provider id |
+| 导入卡 DOM | `shell/index.html` 的 `.wizard-card[data-brand]` + `id="btn-import-<brand>"` | 凭证导入页卡片与按钮 |
+| 导入流程 | `shell/src/main.ts` 的 `AUTH_DETAILS` / `getProviderSpecificWizardHtml` / `bindProviderSpecificEvents` | 弹窗内容与 runner 绑定 |
+| 文案 | `shell/src/i18n.ts` 的 `*Hint` 与向导文案，中英双份 | 卡片副标题与向导 |
+
+`shell/test/provider-registry.test.ts` 是门禁：卡片 brand 集合必须等于 `CRED_BRAND_PROVIDER` 键集合、每张卡必须有对应 `btn-import-<brand>`、每个 provider 必须有元信息与中英双份 `hintKey`。改完跑 `npm --prefix shell test`，红即漏改。
+
 ## 并发与子进程（桌面壳）
 
 - 共享「唯一实例」资源（运行中的子进程句柄、连接池、客户端、线程池）时，「检查是否空闲」与「登记占用」必须在同一把锁（或同一 await 周期）内完成；中间夹 `spawn`、`await`、I/O 就是竞态窗口。
