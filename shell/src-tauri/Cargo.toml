@@ -1,6 +1,6 @@
 [package]
 name = "AIPunch"
-version = "0.2.13"
+version = "0.2.14"
 description = "AIPunch Desktop Shell"
 authors = ["AIPunch"]
 license = "MIT"
