@@ -93,6 +93,8 @@ async function init() {
   setInterval(() => void runCiSync(true), 30 * 60 * 1000);
   // 启动顺带查一次云端平台可达性（国内网络选型参考），结果更新网络状态行
   setTimeout(() => void startRunner("netcheck", [], undefined, { silent: true }), 5000);
+  // Qoder 国际版设备指纹有时效（实测约 3 天），CF 的 cron 拿不到：启动时补刷，未满 24h 跳过
+  setTimeout(() => refreshQoderIntlUmid(), 8000);
 }
 
 // 0. 窗口控制：双击执行 Cocoa 原生平滑动画铺满/还原，mousedown 启动系统级原生拖拽
@@ -874,6 +876,15 @@ function runCheckinAll() {
   } else {
     void startRunner("ci-checkin", []);
   }
+}
+
+// Qoder 国际版设备指纹由本机 UMID 组件生成且有时效（实测约 3 天），CF 的 cron 拿不到；
+// 每次启动检查一次：未满 24 小时跳过，否则生成并推 Secrets。失败只落日志，不阻塞使用
+// （指纹过期时国际版会显示「无活动」，不会误报成功）。
+function refreshQoderIntlUmid(): void {
+  if (activePlatform() !== "cloudflare-workers") return; // 本地执行直接用本机 .env，无需推送
+  if (!currentConfig.accounts.some((a) => a.provider === "qoder-intl")) return;
+  void startRunner("qoder-umid", ["--if-stale", "24", "--push-cf"], undefined, { silent: true });
 }
 
 function allDoneToday(): boolean {

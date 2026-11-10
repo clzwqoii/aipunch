@@ -49,3 +49,12 @@ export function findUmidBinary(
   }
   return null;
 }
+
+// 补刷节流：桌面端每次启动都调用，只有距上次刷新超过 maxAgeHours 才重新生成
+// （设备指纹有时效，但不必每次开机都换新设备身份）
+export function isStale(refreshedAt: string | undefined, now: Date, maxAgeHours: number): boolean {
+  if (!refreshedAt) return true;
+  const at = Date.parse(refreshedAt);
+  if (!Number.isFinite(at)) return true;
+  return now.getTime() - at >= maxAgeHours * 3_600_000;
+}

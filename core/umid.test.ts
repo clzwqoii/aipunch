@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRuntimeInfo, umidCandidates, findUmidBinary } from './umid.ts';
+import { parseRuntimeInfo, umidCandidates, findUmidBinary, isStale } from './umid.ts';
 
 // Qoder 客户端自带 UMID 组件（阿里 securityguard 设备指纹）输出首行 JSON：
 // {"machineToken":"...","machineType":"...","machineCode":"...","vmInfo":{...}}
@@ -44,4 +44,19 @@ test('findUmidBinary 返回第一个存在的候选', () => {
 test('findUmidBinary 无候选或都不存在时返回 null', () => {
   assert.equal(findUmidBinary(() => false, 'linux', {}), null);
   assert.equal(findUmidBinary(() => true, 'linux', {}), null);
+});
+
+// 桌面端启动补刷：只按「距上次刷新是否超过 N 小时」决定，不依赖开机时间点
+test('isStale：无记录/非法值视为需要刷新', () => {
+  const now = new Date('2026-11-10T03:00:00Z');
+  assert.equal(isStale(undefined, now, 24), true);
+  assert.equal(isStale('', now, 24), true);
+  assert.equal(isStale('not-a-date', now, 24), true);
+});
+
+test('isStale：未满 24 小时不刷新，满 24 小时刷新', () => {
+  const now = new Date('2026-11-10T03:00:00Z');
+  assert.equal(isStale('2026-11-09T04:00:00Z', now, 24), false); // 23h
+  assert.equal(isStale('2026-11-09T03:00:00Z', now, 24), true); // 24h
+  assert.equal(isStale('2026-11-10T09:00:00Z', now, 24), false); // 时钟漂移的未来值
 });
