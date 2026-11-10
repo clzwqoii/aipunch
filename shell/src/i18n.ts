@@ -47,7 +47,7 @@ export const translations = {
 
     traeHint: "+200 积分/天",
     qoderHint: "100 Credits/天",
-    qoderIntlHint: "100 Credits/天（国际站）",
+    qoderIntlHint: "100 Credits/天",
     codeartsHint: "+1000 积分/天",
     workbuddyHint: "每日连续签到",
     autoclawHint: "+400 积分/天",
@@ -249,7 +249,7 @@ export const translations = {
 
     traeHint: "+200 pts/day",
     qoderHint: "100 Credits/day",
-    qoderIntlHint: "100 Credits/day (intl)",
+    qoderIntlHint: "100 Credits/day",
     codeartsHint: "+1000 pts/day",
     workbuddyHint: "Daily Check-in",
     autoclawHint: "+400 pts/day",
