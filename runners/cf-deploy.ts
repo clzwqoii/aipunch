@@ -164,12 +164,19 @@ async function triggerNow(args: DeployArgs): Promise<void> {
       return null; // 国内网络抖动：轮询重试即可
     }
   };
+  let staleRounds = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 20_000));
     [result, error] = await Promise.all([read('result'), read('error')]);
     const at = result ? (JSON.parse(result) as { finishedAt?: string }).finishedAt ?? '' : '';
+    const progressed = Boolean((at && at !== beforeAt) || (error && error !== errorBefore));
     console.log(`[CF] 等待执行结果（${at && at !== beforeAt ? '有新结果' : at ? '结果未更新' : '暂无'}${error ? ' · 有错误' : ''}）…`);
-    if ((at && at !== beforeAt) || (error && error !== errorBefore)) break;
+    if (progressed) break;
+    staleRounds++;
+    // 连续 3 轮（约 1 分钟）毫无进展：多半是 cron 没绑到活跃脚本版本（2026-11-11 实测）
+    if (staleRounds === 3) {
+      console.log('[CF] 提示：连续 3 轮无进展，云端可能根本没触发（cron 与脚本版本失联时如此）；可点桌面端「部署」重建，或删 KV 键 worker_sha 后重新部署');
+    }
   }
   // 恢复每日定时（无论成败都恢复，避免 cron 停在每分钟）
   await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, [dailyCron(cronHourFor(args.hour, args.tz))]));
