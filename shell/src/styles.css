@@ -996,6 +996,7 @@ html[data-theme="light"] .pts-number {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   background: var(--bg-recessed);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -1010,6 +1011,9 @@ html[data-theme="light"] .pts-number {
   padding: 3px 10px;
   border-radius: var(--radius-pill);
   font-weight: 700;
+  /* 窄卡片下不能被压缩换行（「今日已签」必须一行显示） */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .status-tag::before {
@@ -1083,6 +1087,8 @@ html[data-theme="light"] .status-tag.unconfigured {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  /* 空间不足时自身收缩换行，不把左侧「今日已签」标签挤成两行 */
+  min-width: 0;
   font-size: 11.5px;
   color: var(--text-primary);
   font-weight: 600;
