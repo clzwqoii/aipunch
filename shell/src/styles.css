@@ -1080,9 +1080,9 @@ html[data-theme="light"] .status-tag.unconfigured {
 
 .points-hint {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 11.5px;
   color: var(--text-primary);
   font-weight: 600;
@@ -1094,6 +1094,13 @@ html[data-theme="light"] .status-tag.unconfigured {
 
 .points-hint .balance-line[hidden] {
   display: none;
+}
+
+/* 余额与提示同一行：有余额时插弱化分隔符，余额隐藏（未同步到数据）时不出现 */
+.points-hint .balance-line:not([hidden]) + .hint-line::before {
+  content: " · ";
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 /* 第三层：底部操作按钮区 */
