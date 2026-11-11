@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDeployPlan, parseDeployArgs, workerSha } from './cf-deploy.ts';
+import { buildDeployPlan, parseDeployArgs, shouldUploadWorker, workerSha } from './cf-deploy.ts';
 import type { ConfigFile } from '../core/config.ts';
 
 test('parseDeployArgs：token/account 必填（可从 env 兜底，重复部署/触发不必重贴），hour/tz 有默认，triggerNow 可选', () => {
@@ -109,4 +109,16 @@ test('buildDeployPlan：--only-secrets 名字不在凭证清单时报错（防�
       }),
     /QODER_INTL_TYPO/,
   );
+});
+
+// 2026-11-11 实测：只推 Secret 的部署会让 cron 与活跃脚本版本失联（schedules 正常、worker 不执行、error 为空）。
+// 增量部署也重传脚本——一次几十 KB 上传换 cron 每次重新绑定活跃版本。
+test('shouldUploadWorker：增量（只推 Secret）也强制重传脚本', () => {
+  assert.equal(shouldUploadWorker(['QODER_INTL_COSY_MACHINE_TOKEN'], 'same', 'same'), true);
+});
+
+test('shouldUploadWorker：全量部署按指纹比对，相同则跳过', () => {
+  assert.equal(shouldUploadWorker([], 'same', 'same'), false);
+  assert.equal(shouldUploadWorker([], 'old', 'new'), true);
+  assert.equal(shouldUploadWorker([], null, 'new'), true);
 });

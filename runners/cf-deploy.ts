@@ -37,6 +37,18 @@ export function workerSha(code: string): string {
   return createHash('sha256').update(code).digest('hex');
 }
 
+// 增量部署（只推 Secret）在 CF 侧可能让 cron 与活跃脚本版本失联：2026-11-11 实测
+// schedules 正常、worker 不执行、error 也不写。所以增量也重传脚本（几十 KB），
+// 换 cron 每次都重新绑定到活跃版本。
+export function shouldUploadWorker(
+  onlySecrets: string[],
+  remoteSha: string | null,
+  localSha: string,
+): boolean {
+  if (onlySecrets.length > 0) return true;
+  return remoteSha !== localSha;
+}
+
 export interface DeployArgs {
   token: string;
   account: string;
@@ -235,7 +247,7 @@ async function main(): Promise<void> {
   await runRequest(fetch, putKvValueRequest(args.account, args.token, nsId, 'config', plan.kvConfig));
   const sha = workerSha(code);
   const remoteSha = await readKvValue(fetch, args.account, args.token, nsId, KV_KEY_WORKER_SHA);
-  if (remoteSha === sha) {
+  if (!shouldUploadWorker(args.onlySecrets, remoteSha, sha)) {
     console.log(`[CF] worker 已是最新（${sha.slice(0, 8)}），跳过脚本上传`);
   } else {
     await runRequest(fetch, await deployWorkerRequest(args.account, args.token, SCRIPT, nsId, plan.crons, code));
