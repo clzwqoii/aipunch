@@ -1,3 +1,4 @@
+// deploy-marker: 2026-11-11 重新部署（排查 cron 停摆：schedules 为每分钟但无执行）
 // Cloudflare Workers 签到执行端（ADR 0004 P2）：cron trigger 触发全量签到，
 // 结果写 KV 供桌面端 ci-sync 拉取；轮换票经 CF API 自我回写 Secrets（KV 不落敏感 token）。
 // providers/core 全部纯 fetch 逻辑，无 node:fs（node:crypto 走 nodejs_compat）；dns-fallback 不打包。
