@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AIPunch",
   "mainBinaryName": "AIPunch",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "identifier": "com.aipunch.app",
   "build": {
     "frontendDist": "../dist",
