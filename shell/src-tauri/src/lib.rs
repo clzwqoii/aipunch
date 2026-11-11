@@ -207,6 +207,10 @@ fn script_file(script: &str) -> Option<&'static str> {
         "trae-extract" => "trae-extract.mjs",
         "trae-login" => "trae-login.mjs",
         "qoder-login" => "qoder-login.mjs",
+        // 国际版同一入口的第二个打包名（--intl 切站点与 env 键）
+        "qoder-intl-login" => "qoder-intl-login.mjs",
+        // Qoder 国际版设备指纹补刷（启动时静默执行）
+        "qoder-umid" => "qoder-umid.mjs",
         "codearts-login" => "codearts-login.mjs",
         "autoclaw-login" => "autoclaw-login.mjs",
         "autoclaw-intl-login" => "autoclaw-intl-login.mjs",
@@ -798,6 +802,29 @@ mod tests {
     fn temp_env_path() -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         std::env::temp_dir().join(format!("aipunch-env-test-{}-{}.env", std::process::id(), nanos))
+    }
+
+    // 漏登记会让桌面端按钮直接报「未知脚本」（实测：qoder-umid 漏映射，启动补刷失败）
+    #[test]
+    fn script_file_covers_all_shell_runners() {
+        for name in [
+            "checkin",
+            "ci-checkin",
+            "ci-sync",
+            "cf-deploy",
+            "netcheck",
+            "trae-extract",
+            "trae-login",
+            "qoder-login",
+            "qoder-intl-login",
+            "qoder-umid",
+            "codearts-login",
+            "autoclaw-login",
+            "autoclaw-intl-login",
+            "login",
+        ] {
+            assert!(script_file(name).is_some(), "script_file 缺映射: {name}");
+        }
     }
 
     #[test]
