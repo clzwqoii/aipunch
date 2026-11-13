@@ -165,6 +165,8 @@ async function triggerNow(args: DeployArgs): Promise<void> {
   // 否则上次失败的残留会让这次触发直接提前退出（实测踩中）
   const errorBefore = (await readKvValue(fetch, args.account, args.token, nsId, 'error')) ?? '';
   console.log('[CF] 立即执行：临时 cron 每分钟触发（CF 调度有分钟级延迟，最长等待 8 分钟）');
+  // 打标记再改 cron：worker 用它区分「刚触发」与「上轮残留的每分钟 cron」（后者超 10 分钟自愈）
+  await runRequest(fetch, putKvValueRequest(args.account, args.token, nsId, 'trigger_at', String(Date.now())));
   await runRequest(fetch, putSchedulesRequest(args.account, args.token, SCRIPT, ['* * * * *']));
   const deadline = Date.now() + 8 * 60_000;
   let result: string | null = null;
@@ -245,6 +247,8 @@ async function main(): Promise<void> {
   // 一键幂等：KV 配置随时可写（独立于 worker）；脚本按指纹比对，相同跳过上传（省频控），
   // 不同则先上传——Secrets/Schedules 端点要求 worker 已存在，必须排在脚本之后
   await runRequest(fetch, putKvValueRequest(args.account, args.token, nsId, 'config', plan.kvConfig));
+  // 自愈恢复用：记住用户配置的每日 cron（trigger-now 中断后 worker 按它复原）
+  await runRequest(fetch, putKvValueRequest(args.account, args.token, nsId, 'cron_spec', plan.crons[0]));
   const sha = workerSha(code);
   const remoteSha = await readKvValue(fetch, args.account, args.token, nsId, KV_KEY_WORKER_SHA);
   if (!shouldUploadWorker(args.onlySecrets, remoteSha, sha)) {

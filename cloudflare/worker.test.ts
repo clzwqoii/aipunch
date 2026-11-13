@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RunResult } from '../core/types.ts';
-import { applyRotations, kvResultEntry, persistRotations, pushRunHistory, secretsView } from './worker.ts';
+import { applyRotations, kvResultEntry, persistRotations, pushRunHistory, secretsView, shouldSelfHealCron } from './worker.ts';
 
 function fakeRun(overrides: Partial<RunResult> = {}): RunResult {
   return {
@@ -102,4 +102,17 @@ test('applyRotations：运行时轮换票覆盖 Secrets 旧值，且不修改入
 test('applyRotations：无缓存时原样返回（零开销路径）', () => {
   const view = { A: '1' };
   assert.equal(applyRotations(view, new Map()), view);
+});
+
+// trigger-now 会把 cron 临时改成每分钟，中断时恢复步骤不会执行（进程被杀/网络失败）。
+// worker 自己发现「每分钟 cron 且触发标记已过期」时必须恢复每日 cron，否则每天烧掉 4 倍 KV 写配额。
+test('shouldSelfHealCron：每分钟 cron 且标记超过宽限才自愈', () => {
+  const now = new Date('2026-11-13T10:00:00Z');
+  const grace = 10 * 60_000;
+  assert.equal(shouldSelfHealCron('* * * * *', String(now.getTime() - 11 * 60_000), now, grace), true);
+  assert.equal(shouldSelfHealCron('* * * * *', String(now.getTime() - 5 * 60_000), now, grace), false);
+  assert.equal(shouldSelfHealCron('0 03 * * *', String(now.getTime() - 11 * 60_000), now, grace), false);
+  assert.equal(shouldSelfHealCron('* * * * *', undefined, now, grace), false);
+  assert.equal(shouldSelfHealCron('* * * * *', 'junk', now, grace), false);
+  assert.equal(shouldSelfHealCron('* * * * *', '0', now, grace), false);
 });

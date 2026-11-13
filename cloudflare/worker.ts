@@ -69,6 +69,37 @@ export function applyRotations(
   return merged;
 }
 
+// trigger-now 会把 cron 临时改成每分钟；进程被杀或网络失败时恢复步骤不会执行，
+// 残留的每分钟 cron 会每天烧掉约 4 倍 KV 写配额（3 次/执行 × 1440）。这里兜底自愈。
+const CRON_GRACE_MS = 10 * 60_000;
+const DEFAULT_DAILY_CRON = '0 03 * * *';
+
+export function shouldSelfHealCron(
+  cron: string | undefined,
+  triggerAt: string | undefined,
+  now: Date,
+  graceMs: number,
+): boolean {
+  if (cron !== '* * * * *') return false;
+  const at = Number(triggerAt);
+  if (!Number.isFinite(at) || at <= 0) return false;
+  return now.getTime() - at > graceMs;
+}
+
+async function restoreDailyCron(env: Env): Promise<void> {
+  // 部署时写入的 cron_spec 才是用户配置的时间；读不到才用默认
+  const spec = (await env.AIPUNCH_KV.get('cron_spec').catch(() => null)) ?? DEFAULT_DAILY_CRON;
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/workers/scripts/${SCRIPT_NAME}/schedules`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${env.CF_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ cron: spec }]),
+    },
+  );
+  if (!res.ok) throw new Error(`恢复每日 cron 失败: HTTP ${res.status}`);
+}
+
 // 轮换票自我回写：PUT secrets（单条端点，无需重传脚本）
 async function putSecret(env: Env, name: string, value: string): Promise<void> {
   const res = await fetch(
@@ -133,8 +164,13 @@ async function runScheduled(env: Env): Promise<void> {
 }
 
 export default {
-  async scheduled(_event: unknown, env: Env, _ctx: unknown): Promise<void> {
+  async scheduled(event: { cron?: string }, env: Env, _ctx: unknown): Promise<void> {
     try {
+      // 兜底：上一次 trigger-now 中断导致 cron 停在每分钟时，恢复用户配置的每日时间
+      const triggerAt = await env.AIPUNCH_KV.get('trigger_at').catch(() => null);
+      if (shouldSelfHealCron(event.cron, triggerAt ?? undefined, new Date(), CRON_GRACE_MS)) {
+        await restoreDailyCron(env);
+      }
       await runScheduled(env);
       await env.AIPUNCH_KV.put('error', '').catch(() => {});
     } catch (err) {
